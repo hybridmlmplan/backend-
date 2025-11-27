@@ -47,3 +47,36 @@ router.post("/login", async (req, res) => {
 });
 
 module.exports = router;
+const bcrypt = require("bcryptjs");
+
+// SIGNUP API
+router.post("/signup", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    // Check empty fields
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: "All fields required" });
+    }
+
+    // Check if user already exists
+    const exist = await User.findOne({ email });
+    if (exist) {
+      return res.status(400).json({ message: "Email already registered" });
+    }
+
+    // Hash password
+    const hashedPass = await bcrypt.hash(password, 10);
+
+    // Create new user
+    const user = await User.create({
+      name,
+      email,
+      password: hashedPass,
+    });
+
+    res.json({ message: "Signup Success", user });
+  } catch (error) {
+    res.status(500).json({ message: "Server Error" });
+  }
+});
