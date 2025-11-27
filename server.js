@@ -1,3 +1,4 @@
+const authRoutes = require("./routes/auth");
 import express from "express";
 import cors from "cors";
 
