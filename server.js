@@ -7,10 +7,7 @@ const app = express();
 
 // MongoDB connect
 mongoose
-  .connect("YOUR_MONGO_CONNECTION_STRING_HERE")
-  .then(() => console.log("MongoDB Connected"))
-  .catch((err) => console.log("MongoDB Error:", err));
-
+  .connect("YOUR_MO
 // Middlewares
 app.use(cors());
 app.use(express.json());
@@ -50,3 +47,4 @@ app.get("/", (req, res) => {
 app.listen(5000, () => {
   console.log("Server is running on port 5000");
 });
+o
