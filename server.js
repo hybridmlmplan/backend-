@@ -1,9 +1,10 @@
 const authRoutes = require("./routes/auth");
 import express from "express";
 import cors from "cors";
-
 const app = express();
 app.use(cors());
+app.use("/api/auth", authRoutes);
+
 app.use(express.json());
 
 // Test route
