@@ -8,5 +8,28 @@ router.post("/signup", signup);
 router.post("/login", login);
 
 export default router;
-// Registration (Full KYC)
+const express = require("express");
+const router = express.Router();
+
+const {
+  signupUser,
+  loginUser,
+  registerUser
+} = require("../controllers/authController");
+
+// ===========================
+// SIGNUP
+// ===========================
+router.post("/signup", signupUser);
+
+// ===========================
+// LOGIN
+// ===========================
+router.post("/login", loginUser);
+
+// ===========================
+// FULL KYC REGISTRATION
+// ===========================
 router.post("/register", registerUser);
+
+module.exports = router;
