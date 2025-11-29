@@ -1,13 +1,3 @@
-import express from "express";
-import { signup, login } from "../controllers/authController.js";
-
-const router = express.Router();
-
-// PUBLIC ROUTES
-router.post("/signup", signup);
-router.post("/login", login);
-
-export default router;
 const express = require("express");
 const router = express.Router();
 
@@ -18,17 +8,17 @@ const {
 } = require("../controllers/authController");
 
 // ===========================
-// SIGNUP
+// SIGNUP (Basic Account Create)
 // ===========================
 router.post("/signup", signupUser);
 
 // ===========================
-// LOGIN
+// LOGIN (Password Based Only)
 // ===========================
 router.post("/login", loginUser);
 
 // ===========================
-// FULL KYC REGISTRATION
+// FULL KYC REGISTRATION FORM
 // ===========================
 router.post("/register", registerUser);
 
