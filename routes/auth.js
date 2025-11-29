@@ -8,3 +8,5 @@ router.post("/signup", signup);
 router.post("/login", login);
 
 export default router;
+// Registration (Full KYC)
+router.post("/register", registerUser);
