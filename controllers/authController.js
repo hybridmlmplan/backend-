@@ -26,8 +26,10 @@ export const signup = async (req, res) => {
       email,
       phone,
       password: hashedPassword,
-      status: "inactive", // Activate only after registration
+      status: "inactive",
       currentPackage: "none",
+      isRegistered: false,
+      kycStatus: "Not Submitted",
     });
 
     return res.json({ message: "Signup successful", userId: newUser._id });
@@ -68,7 +70,7 @@ export const login = async (req, res) => {
       message: "Login successful",
       token,
       name: user.name,
-      userId: user.userId,
+      userId: user._id,
       currentPackage: user.currentPackage,
       status: user.status,
     });
@@ -76,11 +78,11 @@ export const login = async (req, res) => {
     return res.status(500).json({ message: "Login failed", error: err });
   }
 };
-// =======================================
-// 🔵 REGISTRATION (Full KYC Registration)
-// =======================================
 
-exports.registerUser = async (req, res) => {
+// =======================================
+// FULL REGISTRATION (KYC)
+// =======================================
+export const registerUser = async (req, res) => {
   try {
     const {
       userId,
@@ -98,7 +100,7 @@ exports.registerUser = async (req, res) => {
       upiId
     } = req.body;
 
-    // 1️⃣ Validate required fields
+    // Validate fields
     if (!userId || !fullName || !phone || !aadhar || !pan) {
       return res.status(400).json({
         status: false,
@@ -106,8 +108,8 @@ exports.registerUser = async (req, res) => {
       });
     }
 
-    // 2️⃣ Check if user exists
-    const user = await User.findOne({ userId });
+    // Find user
+    const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({
         status: false,
@@ -115,7 +117,7 @@ exports.registerUser = async (req, res) => {
       });
     }
 
-    // 3️⃣ Check if already registered (KYC done)
+    // Already registered?
     if (user.isRegistered) {
       return res.status(400).json({
         status: false,
@@ -123,7 +125,7 @@ exports.registerUser = async (req, res) => {
       });
     }
 
-    // 4️⃣ Save registration (Full KYC)
+    // Save KYC
     user.fullName = fullName;
     user.phone = phone;
     user.aadhar = aadhar;
@@ -144,24 +146,21 @@ exports.registerUser = async (req, res) => {
     };
 
     user.isRegistered = true;
-    user.kycStatus = "Pending";  // Admin panel will approve/reject
+    user.kycStatus = "Pending";
 
     await user.save();
 
-    // 5️⃣ Response
     return res.status(200).json({
       status: true,
-      message: "Registration completed successfully — KYC Pending",
+      message: "Registration completed — KYC Pending",
       data: user
     });
 
   } catch (error) {
-    console.error("Registration Error:", error);
     return res.status(500).json({
       status: false,
-      message: "Server error during registration",
+      message: "Server error",
       error: error.message
     });
   }
 };
-
