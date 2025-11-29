@@ -32,7 +32,10 @@ export const signup = async (req, res) => {
       kycStatus: "Not Submitted",
     });
 
-    return res.json({ message: "Signup successful", userId: newUser._id });
+    return res.json({
+      message: "Signup successful",
+      userId: newUser._id,
+    });
   } catch (err) {
     return res.status(500).json({ message: "Signup failed", error: err });
   }
@@ -100,6 +103,15 @@ export const registerUser = async (req, res) => {
       upiId
     } = req.body;
 
+    // ❗ 29 February — NO JOINING / REGISTRATION
+    const today = new Date();
+    if (today.getDate() === 29 && today.getMonth() === 1) {
+      return res.status(403).json({
+        status: false,
+        message: "29 February ko registration allowed nahi hai."
+      });
+    }
+
     // Validate fields
     if (!userId || !fullName || !phone || !aadhar || !pan) {
       return res.status(400).json({
@@ -108,7 +120,7 @@ export const registerUser = async (req, res) => {
       });
     }
 
-    // Find user
+    // Find user by ID
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({
@@ -125,9 +137,11 @@ export const registerUser = async (req, res) => {
       });
     }
 
-    // Save KYC
+    // SAVE KYC DETAILS
     user.fullName = fullName;
-    user.phone = phone;
+    // 🔥 phone NOT updated — signup phone final hota hai
+    // user.phone = phone;  // removed
+
     user.aadhar = aadhar;
     user.pan = pan;
     user.address = address;
