@@ -76,3 +76,92 @@ export const login = async (req, res) => {
     return res.status(500).json({ message: "Login failed", error: err });
   }
 };
+// =======================================
+// 🔵 REGISTRATION (Full KYC Registration)
+// =======================================
+
+exports.registerUser = async (req, res) => {
+  try {
+    const {
+      userId,
+      fullName,
+      phone,
+      aadhar,
+      pan,
+      address,
+      dob,
+      nomineeName,
+      nomineeRelation,
+      bankName,
+      accountNumber,
+      ifsc,
+      upiId
+    } = req.body;
+
+    // 1️⃣ Validate required fields
+    if (!userId || !fullName || !phone || !aadhar || !pan) {
+      return res.status(400).json({
+        status: false,
+        message: "Required fields missing"
+      });
+    }
+
+    // 2️⃣ Check if user exists
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({
+        status: false,
+        message: "User not found"
+      });
+    }
+
+    // 3️⃣ Check if already registered (KYC done)
+    if (user.isRegistered) {
+      return res.status(400).json({
+        status: false,
+        message: "Registration already completed"
+      });
+    }
+
+    // 4️⃣ Save registration (Full KYC)
+    user.fullName = fullName;
+    user.phone = phone;
+    user.aadhar = aadhar;
+    user.pan = pan;
+    user.address = address;
+    user.dob = dob;
+
+    user.nominee = {
+      name: nomineeName,
+      relation: nomineeRelation,
+    };
+
+    user.bankDetails = {
+      bankName,
+      accountNumber,
+      ifsc,
+      upiId
+    };
+
+    user.isRegistered = true;
+    user.kycStatus = "Pending";  // Admin panel will approve/reject
+
+    await user.save();
+
+    // 5️⃣ Response
+    return res.status(200).json({
+      status: true,
+      message: "Registration completed successfully — KYC Pending",
+      data: user
+    });
+
+  } catch (error) {
+    console.error("Registration Error:", error);
+    return res.status(500).json({
+      status: false,
+      message: "Server error during registration",
+      error: error.message
+    });
+  }
+};
+
