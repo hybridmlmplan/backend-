@@ -2,24 +2,33 @@ import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema(
   {
-    userId: { type: String, unique: true }, // SP0001, GP0001, RP0001
-
+    // ------------------------------
+    // BASIC USER DETAILS
+    // ------------------------------
+    userId: { type: String, unique: true }, // SP0001 / GP0001 / RP0001
     name: String,
     email: { type: String, unique: true },
     phone: { type: String, unique: true },
     password: String,
     upiId: String,
 
-    // Binary + Level System
+    // ------------------------------
+    // SPONSOR / REFERRAL / PLACEMENT
+    // ------------------------------
     sponsorId: String,
     referralId: String,
     placementSide: { type: String, enum: ["left", "right"] },
 
+    // ------------------------------
+    // JOINING / SESSION / STATUS
+    // ------------------------------
     joinedDate: Date,
-    session: Number, // 1 or 2
-    status: { type: String, default: "inactive" }, // active after Silver registration
+    session: { type: Number, required: true }, // 1 or 2 (Required)
+    status: { type: String, default: "inactive" }, // active after activation
 
-    // Package System
+    // ------------------------------
+    // PACKAGE SYSTEM
+    // ------------------------------
     currentPackage: { type: String, default: "none" }, // silver/gold/ruby
     packageHistory: [
       {
@@ -30,7 +39,9 @@ const userSchema = new mongoose.Schema(
       },
     ],
 
-    // PV / BV System
+    // ------------------------------
+    // PV / BV SYSTEM
+    // ------------------------------
     pv: { type: Number, default: 0 },
     bv: { type: Number, default: 0 },
 
@@ -39,44 +50,66 @@ const userSchema = new mongoose.Schema(
     leftCarry: { type: Number, default: 0 },
     rightCarry: { type: Number, default: 0 },
 
-    // Level System
+    // ------------------------------
+    // LEVEL / RANK SYSTEM
+    // ------------------------------
     directCount: { type: Number, default: 0 },
-    level: { type: Number, default: 0 }, // Star1, Star2, Star3 etc.
-    rank: { type: String, default: "Star" },
+    level: { type: String, default: "None" }, // Star1, Star2, Star3
+    rank: { type: String, default: "None" }, // Silver Star → Company Star etc.
 
-    // Wallet Section
+    // ------------------------------
+    // WALLET SYSTEM
+    // ------------------------------
     wallet: {
       pairIncome: { type: Number, default: 0 },
       levelIncome: { type: Number, default: 0 },
       royaltyIncome: { type: Number, default: 0 },
       percentageIncome: { type: Number, default: 0 },
       fundIncome: { type: Number, default: 0 },
-      nomineeIncome: { type: Number, default: 0 },
     },
 
-    // Genealogy Tree System
+    // ------------------------------
+    // GENEALOGY TREE
+    // ------------------------------
     treeParent: String,
-    treeChildren: { type: [String], default: [] },
+    treeChildren: {
+      type: [
+        {
+          userId: String,
+          placementSide: String,
+          joinedDate: Date,
+        },
+      ],
+      default: [],
+    },
 
-    // Renewal System
-    renewalDate: Date,
+    // ------------------------------
+    // RENEWAL SYSTEM
+    // ------------------------------
+    renewalDate: { type: Date, required: true }, // Always Silver join date
     extraPV: { type: Number, default: 0 },
 
-    // KYC System
+    // ------------------------------
+    // KYC SYSTEM
+    // ------------------------------
     kycStatus: {
       type: String,
-      enum: ["pending", "approved", "rejected"],
-      default: "pending",
+      enum: ["not-submitted", "pending", "approved", "rejected"],
+      default: "not-submitted",
     },
 
-    // Nominee Details
+    // ------------------------------
+    // NOMINEE DETAILS
+    // ------------------------------
     nominee: {
       name: String,
       relation: String,
       phone: String,
     },
 
-    // Address Details
+    // ------------------------------
+    // ADDRESS DETAILS
+    // ------------------------------
     address: {
       line1: String,
       city: String,
@@ -84,7 +117,9 @@ const userSchema = new mongoose.Schema(
       pincode: String,
     },
 
-    // Document Uploads
+    // ------------------------------
+    // DOCUMENT UPLOADS
+    // ------------------------------
     documents: {
       aadharFront: String,
       aadharBack: String,
