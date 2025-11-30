@@ -1,15 +1,39 @@
 import jwt from "jsonwebtoken";
+import User from "../models/User.js";
 
-export default function auth(req, res, next) {
-  const token = req.headers.authorization;
-
-  if (!token) return res.json({ message: "No token" });
-
+export const authMiddleware = async (req, res, next) => {
   try {
-    const decode = jwt.verify(token, "SECRET");
-    req.userId = decode.id;
+    const token = req.headers["authorization"];
+
+    if (!token) {
+      return res.status(401).json({
+        status: false,
+        message: "No token provided",
+      });
+    }
+
+    const actualToken = token.replace("Bearer ", "");
+
+    const decoded = jwt.verify(
+      actualToken,
+      process.env.JWT_SECRET || "mlmsecret"
+    );
+
+    const user = await User.findById(decoded.id);
+
+    if (!user) {
+      return res.status(404).json({
+        status: false,
+        message: "User not found",
+      });
+    }
+
+    req.user = user; // attach user to request
     next();
-  } catch (err) {
-    res.json({ message: "Invalid token" });
+  } catch (error) {
+    return res.status(401).json({
+      status: false,
+      message: "Invalid or expired token",
+    });
   }
-}
+};
