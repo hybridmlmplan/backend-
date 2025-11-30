@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 // =========================
-// SIGNUP (ONLY BASIC ACCOUNT)
+// SIGNUP (BASIC ACCOUNT)
 // =========================
 export const signup = async (req, res) => {
   try {
@@ -11,6 +11,9 @@ export const signup = async (req, res) => {
 
     if (!name || !email || !phone || !password)
       return res.status(400).json({ message: "All fields required" });
+
+    if (password.length < 6)
+      return res.status(400).json({ message: "Password must be 6+ characters" });
 
     const userExist = await User.findOne({
       $or: [{ email }, { phone }],
@@ -33,11 +36,17 @@ export const signup = async (req, res) => {
     });
 
     return res.json({
+      status: true,
       message: "Signup successful",
       userId: newUser._id,
     });
+
   } catch (err) {
-    return res.status(500).json({ message: "Signup failed", error: err });
+    return res.status(500).json({
+      status: false,
+      message: "Signup failed",
+      error: err.message,
+    });
   }
 };
 
@@ -59,26 +68,32 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: "User not found" });
 
     const passwordMatch = await bcrypt.compare(password, user.password);
-
     if (!passwordMatch)
       return res.status(400).json({ message: "Incorrect password" });
 
     const token = jwt.sign(
       { id: user._id },
-      process.env.JWT_SECRET || "mlmsecret",
+      process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
     return res.json({
+      status: true,
       message: "Login successful",
       token,
       name: user.name,
       userId: user._id,
       currentPackage: user.currentPackage,
       status: user.status,
+      isRegistered: user.isRegistered,
     });
+
   } catch (err) {
-    return res.status(500).json({ message: "Login failed", error: err });
+    return res.status(500).json({
+      status: false,
+      message: "Login failed",
+      error: err.message,
+    });
   }
 };
 
@@ -103,7 +118,7 @@ export const registerUser = async (req, res) => {
       upiId
     } = req.body;
 
-    // ❗ 29 February — NO JOINING / REGISTRATION
+    // ❗ 29 February — NO REGISTRATION
     const today = new Date();
     if (today.getDate() === 29 && today.getMonth() === 1) {
       return res.status(403).json({
@@ -112,7 +127,6 @@ export const registerUser = async (req, res) => {
       });
     }
 
-    // Validate fields
     if (!userId || !fullName || !phone || !aadhar || !pan) {
       return res.status(400).json({
         status: false,
@@ -120,16 +134,10 @@ export const registerUser = async (req, res) => {
       });
     }
 
-    // Find user by ID
     const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({
-        status: false,
-        message: "User not found"
-      });
-    }
+    if (!user)
+      return res.status(404).json({ status: false, message: "User not found" });
 
-    // Already registered?
     if (user.isRegistered) {
       return res.status(400).json({
         status: false,
@@ -139,8 +147,9 @@ export const registerUser = async (req, res) => {
 
     // SAVE KYC DETAILS
     user.fullName = fullName;
-    // 🔥 phone NOT updated — signup phone final hota hai
-    // user.phone = phone;  // removed
+
+    // phone cannot be changed after signup → GT70 rule
+    // user.phone = phone; 
 
     user.aadhar = aadhar;
     user.pan = pan;
@@ -167,7 +176,12 @@ export const registerUser = async (req, res) => {
     return res.status(200).json({
       status: true,
       message: "Registration completed — KYC Pending",
-      data: user
+      data: {
+        userId: user._id,
+        fullName: user.fullName,
+        phone: user.phone,
+        kycStatus: user.kycStatus,
+      }
     });
 
   } catch (error) {
