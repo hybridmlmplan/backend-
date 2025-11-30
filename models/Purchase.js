@@ -16,15 +16,28 @@ const purchaseSchema = new mongoose.Schema(
 
     packageName: {
       type: String,
-      enum: ["silver", "gold", "ruby"],
-      required: true,
+      required: true,              // "Silver", "Gold", "Ruby"
     },
 
-    amount: { type: Number, required: true }, // package price
-    pv: { type: Number, required: true },     // package PV
-    bv: { type: Number, required: true },     // package BV
+    prefix: {
+      type: String,
+      required: true,              // "Sp" | "Gp" | "Rp"
+    },
 
-    prefix: { type: String, required: true }, // Sp/Gp/Rp
+    amount: {
+      type: Number,
+      required: true,              // Package price
+    },
+
+    pv: {
+      type: Number,
+      required: true,              // Package PV (impact: PV Engine)
+    },
+
+    bv: {
+      type: Number,
+      required: true,              // Package BV (repurchase only, here for display)
+    },
 
     paymentMethod: {
       type: String,
@@ -32,8 +45,15 @@ const purchaseSchema = new mongoose.Schema(
       default: "epin",
     },
 
-    isUpgrade: { type: Boolean, default: false }, // Silver → Gold → Ruby
-    isRenewal: { type: Boolean, default: false }, // yearly PV 1440
+    isUpgrade: {
+      type: Boolean,
+      default: false,              // Silver → Gold → Ruby
+    },
+
+    isRenewal: {
+      type: Boolean,
+      default: false,              // yearly 1440 PV rule
+    },
 
     status: {
       type: String,
@@ -41,15 +61,18 @@ const purchaseSchema = new mongoose.Schema(
       default: "pending",
     },
 
-    activationDate: { type: Date },
-    expiryDate: { type: Date },
+    activationDate: {
+      type: Date,
+    },
+
+    expiryDate: {
+      type: Date,
+    },
 
     session: {
       type: String,
       enum: ["morning", "evening"],
-      required: true, 
-      // morning = 06:00–16:00
-      // evening = 16:01–23:59
+      required: true,               // required in GT70 pages
     },
   },
   { timestamps: true }
