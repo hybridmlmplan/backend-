@@ -1,25 +1,23 @@
-const express = require("express");
+import express from "express";
+import {
+  signup,
+  login,
+  registerUser,
+} from "../controllers/authController.js";
+
 const router = express.Router();
 
-const {
-  signupUser,
-  loginUser,
-  registerUser
-} = require("../controllers/authController");
+// ==========================
+// AUTH ROUTES
+// ==========================
 
-// ===========================
-// SIGNUP (Basic Account Create)
-// ===========================
-router.post("/signup", signupUser);
+// Signup → Basic account creation
+router.post("/signup", signup);
 
-// ===========================
-// LOGIN (Password Based Only)
-// ===========================
-router.post("/login", loginUser);
+// Login → Password based login
+router.post("/login", login);
 
-// ===========================
-// FULL KYC REGISTRATION FORM
-// ===========================
+// Registration → Full KYC + Details
 router.post("/register", registerUser);
 
-module.exports = router;
+export default router;
