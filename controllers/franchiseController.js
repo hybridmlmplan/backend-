@@ -1,3 +1,7 @@
+const Wallet = require("../models/wallets");
+const User = require("../models/User");          // ✔ REQUIRED (missing earlier)
+const Epin = require("../models/Epin");
+const Purchase = require("../models/Purchase");
 const User = require("../models/User");
 const Wallet = require("../models/wallets");
 const Epin = require("../models/Epin");
