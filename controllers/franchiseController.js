@@ -1,9 +1,5 @@
 const Wallet = require("../models/wallets");
-const User = require("../models/User");          // ✔ REQUIRED (missing earlier)
-const Epin = require("../models/Epin");
-const Purchase = require("../models/Purchase");
 const User = require("../models/User");
-const Wallet = require("../models/wallets");
 const Epin = require("../models/Epin");
 const Purchase = require("../models/Purchase");
 
@@ -94,7 +90,10 @@ exports.getFranchiseEpinSummary = async (req, res) => {
     const franchiseId = req.params.id;
 
     const totalPins = await Epin.find({ createdBy: franchiseId }).count();
-    const usedPins = await Epin.find({ createdBy: franchiseId, status: "used" }).count();
+    const usedPins = await Epin.find({
+      createdBy: franchiseId,
+      status: "used",
+    }).count();
     const unusedPins = totalPins - usedPins;
 
     return res.json({
@@ -115,7 +114,9 @@ exports.getFranchiseSales = async (req, res) => {
   try {
     const franchiseId = req.params.id;
 
-    const sales = await Purchase.find({ franchiseId }).sort({ createdAt: -1 });
+    const sales = await Purchase.find({ franchiseId }).sort({
+      createdAt: -1,
+    });
 
     return res.json(sales);
   } catch (err) {
