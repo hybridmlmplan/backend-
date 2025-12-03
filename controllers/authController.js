@@ -60,30 +60,38 @@ export const signup = async (req, res) => {
 
     // Create user
     const newUser = await User.create({
-      userId,
-      name,
-      email,
-      phone,
-      password: hashedPassword,
+// Default safe values
+const safeSponsor = sponsorId || "SP1001";
+const safePlacement = placementId || "SP1001";
+const safePosition = position || "left";
 
-      // MLM
-      sponsorId,
-      referralId: sponsorId,
-      treeParent: placementId,
-      placementSide: position,
+// Create user
+const newUser = await User.create({
+  userId,
+  name,
+  email,
+  phone,
+  password: hashedPassword,
 
-      // Package
-      currentPackage: packageName,
-      joinedDate: new Date(),
-      session,
-      status: "inactive",
+  // MLM
+  sponsorId: safeSponsor,
+  referralId: safeSponsor,
+  treeParent: safePlacement,
+  placementSide: safePosition,
 
-      // Renewal
-      renewalDate: new Date(),
+  // Package
+  currentPackage: packageName,
+  joinedDate: new Date(),
+  session,
+  status: "inactive",
 
-      // KYC
-      kycStatus: "not-submitted",
-    });
+  // Renewal
+  renewalDate: new Date(),
+
+  // KYC
+  kycStatus: "not-submitted",
+});
+
 
     return res.status(200).json({
       status: true,
