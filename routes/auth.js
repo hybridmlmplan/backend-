@@ -2,7 +2,6 @@ import express from "express";
 import {
   signup,
   login,
-  registerUser,
 } from "../controllers/authController.js";
 
 const router = express.Router();
@@ -16,8 +15,5 @@ router.post("/signup", signup);
 
 // Login → Password based login
 router.post("/login", login);
-
-// Registration → Full KYC + Details
-router.post("/register", registerUser);
 
 export default router;
