@@ -1,3 +1,7 @@
+import User from "../models/User.js";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+
 // =========================
 // SIGNUP (REGISTER)
 // =========================
@@ -15,8 +19,8 @@ export const signup = async (req, res) => {
     } = req.body;
 
     // Fallback default (IMPORTANT)
-    const safeSponsor = sponsorId || "SP1001";
-    const safePlacement = placementId || "SP1001";
+    const safeSponsor = sponsorId || "GSM001";
+    const safePlacement = placementId || "GSM001";
     const safePosition = position || "left";
     const safePackage = packageName || "Silver";
 
@@ -46,9 +50,11 @@ export const signup = async (req, res) => {
 
     // 4) Generate Auto userId
     let last = await User.find().sort({ _id: -1 }).limit(1);
-    let newNumber = last.length === 0 ? 1 : (parseInt(last[0].userId?.replace("SP", "")) + 1);
+    let newNumber = last.length === 0
+      ? 2   // because GSM001 is root
+      : (parseInt(last[0].userId?.replace("GSM", "")) + 1);
 
-    const userId = "SP" + String(newNumber).padStart(4, "0");
+    const userId = "GSM" + String(newNumber).padStart(3, "0");
 
     // 5) Hash password
     const hash = await bcrypt.hash(password, 10);
@@ -94,31 +100,55 @@ export const signup = async (req, res) => {
       error: err.message
     });
   }
-};export const login = async (req, res) => {
+};
+
+// =========================
+// LOGIN
+// =========================
+export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
     // Check user
     const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user)
+      return res.status(404).json({
+        status: false,
+        message: "User not found"
+      });
 
     // Check password
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: "Invalid password" });
+    if (!isMatch)
+      return res.status(400).json({
+        status: false,
+        message: "Invalid password"
+      });
 
     // Create token
     const token = jwt.sign(
-      { id: user._id },
+      { id: user._id, userId: user.userId },
       process.env.JWT_SECRET || "secret",
       { expiresIn: "7d" }
     );
 
     res.status(200).json({
+      status: true,
       message: "Login successful",
       token,
-      user
+      user: {
+        userId: user.userId,
+        name: user.name,
+        email: user.email,
+        phone: user.phone
+      }
     });
+
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      status: false,
+      message: "Login failed",
+      error: error.message
+    });
   }
 };
