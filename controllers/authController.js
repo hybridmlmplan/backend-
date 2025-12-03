@@ -1,194 +1,126 @@
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 
 // =========================
-// SIGNUP (BASIC ACCOUNT)
+// SIGNUP (FULL MLM ACCOUNT)
 // =========================
 export const signup = async (req, res) => {
   try {
-    const { name, email, phone, password } = req.body;
+    const {
+      name,
+      email,
+      phone,
+      password,
+      sponsorId,
+      placementId,
+      placementSide,
+      packageName, // silver/gold/ruby
+    } = req.body;
 
+    // Basic validation
     if (!name || !email || !phone || !password)
-      return res.status(400).json({ message: "All fields required" });
+      return res.status(400).json({ status: false, message: "All fields required" });
 
-    if (password.length < 6)
-      return res.status(400).json({ message: "Password must be 6+ characters" });
+    if (!sponsorId || !placementId || !placementSide || !packageName)
+      return res.status(400).json({
+        status: false,
+        message: "Sponsor, Placement, Side & Package are required",
+      });
 
+    if (!["left", "right"].includes(placementSide.toLowerCase()))
+      return res.status(400).json({ status: false, message: "Invalid placement side" });
+
+    if (!["silver", "gold", "ruby"].includes(packageName.toLowerCase()))
+      return res.status(400).json({ status: false, message: "Invalid package" });
+
+    // Check duplicate user
     const userExist = await User.findOne({
       $or: [{ email }, { phone }],
     });
 
     if (userExist)
-      return res.status(400).json({ message: "Email or Phone already exists" });
+      return res.status(400).json({
+        status: false,
+        message: "Email or Phone already exists",
+      });
 
+    // Check sponsor existence
+    const sponsor = await User.findOne({ userId: sponsorId });
+    if (!sponsor)
+      return res.status(400).json({
+        status: false,
+        message: "Sponsor ID not found",
+      });
+
+    // Check placement existence
+    const placement = await User.findOne({ userId: placementId });
+    if (!placement)
+      return res.status(400).json({
+        status: false,
+        message: "Placement ID not found",
+      });
+
+    // Create hashed password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Create unique userId prefix
+    const prefix =
+      packageName.toLowerCase() === "silver"
+        ? "SP"
+        : packageName.toLowerCase() === "gold"
+        ? "GP"
+        : "RP";
+
+    const count = await User.countDocuments({});
+    const userId = `${prefix}${String(count + 1).padStart(4, "0")}`;
+
+    // Create new user
     const newUser = await User.create({
+      userId,
       name,
       email,
       phone,
       password: hashedPassword,
+
+      sponsorId,
+      referralId: sponsorId,
+
+      treeParent: placementId,
+      placementSide: placementSide.toLowerCase(),
+
+      joinedDate: new Date(),
+      session: 1,
+      renewalDate: new Date(),
+
+      currentPackage: packageName.toLowerCase(),
       status: "inactive",
-      currentPackage: "none",
-      isRegistered: false,
-      kycStatus: "Not Submitted",
+      kycStatus: "not-submitted",
     });
 
-    return res.json({
+    // Add user to placement node
+    placement.treeChildren.push({
+      userId: newUser.userId,
+      placementSide: placementSide.toLowerCase(),
+      joinedDate: new Date(),
+    });
+
+    await placement.save();
+
+    // Return response
+    return res.status(200).json({
       status: true,
       message: "Signup successful",
-      userId: newUser._id,
+      userId: newUser.userId,
+      sponsorId: newUser.sponsorId,
+      placementId: newUser.treeParent,
+      placementSide: newUser.placementSide,
+      package: newUser.currentPackage,
     });
-
   } catch (err) {
     return res.status(500).json({
       status: false,
       message: "Signup failed",
       error: err.message,
-    });
-  }
-};
-
-// =========================
-// LOGIN (PASSWORD BASED)
-// =========================
-export const login = async (req, res) => {
-  try {
-    const { emailOrPhone, password } = req.body;
-
-    if (!emailOrPhone || !password)
-      return res.status(400).json({ message: "All fields required" });
-
-    const user = await User.findOne({
-      $or: [{ email: emailOrPhone }, { phone: emailOrPhone }],
-    });
-
-    if (!user)
-      return res.status(400).json({ message: "User not found" });
-
-    const passwordMatch = await bcrypt.compare(password, user.password);
-    if (!passwordMatch)
-      return res.status(400).json({ message: "Incorrect password" });
-
-    const token = jwt.sign(
-      { id: user._id },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    return res.json({
-      status: true,
-      message: "Login successful",
-      token,
-      name: user.name,
-      userId: user._id,
-      currentPackage: user.currentPackage,
-      status: user.status,
-      isRegistered: user.isRegistered,
-    });
-
-  } catch (err) {
-    return res.status(500).json({
-      status: false,
-      message: "Login failed",
-      error: err.message,
-    });
-  }
-};
-
-// =======================================
-// FULL REGISTRATION (KYC)
-// =======================================
-export const registerUser = async (req, res) => {
-  try {
-    const {
-      userId,
-      fullName,
-      phone,
-      aadhar,
-      pan,
-      address,
-      dob,
-      nomineeName,
-      nomineeRelation,
-      bankName,
-      accountNumber,
-      ifsc,
-      upiId
-    } = req.body;
-
-    // ❗ 29 February — NO REGISTRATION
-    const today = new Date();
-    if (today.getDate() === 29 && today.getMonth() === 1) {
-      return res.status(403).json({
-        status: false,
-        message: "29 February ko registration allowed nahi hai."
-      });
-    }
-
-    if (!userId || !fullName || !phone || !aadhar || !pan) {
-      return res.status(400).json({
-        status: false,
-        message: "Required fields missing"
-      });
-    }
-
-    const user = await User.findById(userId);
-    if (!user)
-      return res.status(404).json({ status: false, message: "User not found" });
-
-    if (user.isRegistered) {
-      return res.status(400).json({
-        status: false,
-        message: "Registration already completed"
-      });
-    }
-
-    // SAVE KYC DETAILS
-    user.fullName = fullName;
-
-    // phone cannot be changed after signup → GT70 rule
-    // user.phone = phone; 
-
-    user.aadhar = aadhar;
-    user.pan = pan;
-    user.address = address;
-    user.dob = dob;
-
-    user.nominee = {
-      name: nomineeName,
-      relation: nomineeRelation,
-    };
-
-    user.bankDetails = {
-      bankName,
-      accountNumber,
-      ifsc,
-      upiId
-    };
-
-    user.isRegistered = true;
-    user.kycStatus = "Pending";
-
-    await user.save();
-
-    return res.status(200).json({
-      status: true,
-      message: "Registration completed — KYC Pending",
-      data: {
-        userId: user._id,
-        fullName: user.fullName,
-        phone: user.phone,
-        kycStatus: user.kycStatus,
-      }
-    });
-
-  } catch (error) {
-    return res.status(500).json({
-      status: false,
-      message: "Server error",
-      error: error.message
     });
   }
 };
