@@ -1,94 +1,160 @@
-const Tree = require('../models/Tree');
-const User = require('../models/User');
-const mongoose = require('mongoose');
+// controllers/genealogyController.js
+
+import User from "../models/User.js";
 
 /**
- * getTreeByUser - returns a tree node and its nearby children
+ * GET TREE NODE WITH CHILDREN
+ * /api/genealogy/tree/:userId
  */
-exports.getTreeByUser = async (req, res) => {
+export const getTreeByUser = async (req, res) => {
   try {
     const { userId } = req.params;
-    const node = await Tree.findOne({ user: userId }).populate('left right parent', 'user fullName email');
-    if (!node) return res.status(404).json({ message: 'Tree node not found' });
-    res.json({ node });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
 
-/**
- * placeUserInTree - admin places a user into the binary tree
- * body: { userId, parentId, position } // position: 'left' | 'right'
- */
-exports.placeUserInTree = async (req, res) => {
-  try {
-    const { userId, parentId, position } = req.body;
-    if (!['left','right'].includes(position)) return res.status(400).json({ message: 'Invalid position' });
+    const user = await User.findOne({ gsmId: userId })
+      .select("gsmId fullName email sponsorId leftChild rightChild");
 
-    // check parent node
-    const parentNode = await Tree.findOne({ user: parentId });
-    if (!parentNode) return res.status(404).json({ message: 'Parent node not found' });
+    if (!user) {
+      return res.status(404).json({ message: "User not found in tree" });
+    }
 
-    // ensure slot is empty
-    if (parentNode[position]) return res.status(400).json({ message: `${position} slot is already filled` });
+    let left = null;
+    if (user.leftChild) {
+      left = await User.findOne({ gsmId: user.leftChild })
+        .select("gsmId fullName email sponsorId");
+    }
 
-    // create node for user
-    const depth = parentNode.depth + 1;
-    const newNode = await Tree.create({
-      user: userId,
-      parent: parentNode.user,
-      position,
-      depth
+    let right = null;
+    if (user.rightChild) {
+      right = await User.findOne({ gsmId: user.rightChild })
+        .select("gsmId fullName email sponsorId");
+    }
+
+    res.json({
+      user,
+      left,
+      right
     });
 
-    // update parent slot
-    parentNode[position] = mongoose.Types.ObjectId(userId);
-    await parentNode.save();
-
-    res.json({ success: true, newNode });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
+    console.error("getTreeByUser Error", err);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
+
 /**
- * getDownline - fetch downline up to given level (default level 1)
+ * PLACE USER IN TREE (ADMIN ONLY)
+ * /api/genealogy/place-user
+ * body: { parentId, newUserId, position } // left/right
  */
-exports.getDownline = async (req, res) => {
+export const placeUserInTree = async (req, res) => {
   try {
-    const { userId } = req.params;
-    const level = parseInt(req.params.level || '1', 10);
+    const { parentId, newUserId, position } = req.body;
 
-    // BFS down the tree
-    const root = await Tree.findOne({ user: userId });
-    if (!root) return res.status(404).json({ message: 'Root node not found' });
+    if (!parentId || !newUserId || !position) {
+      return res.status(400).json({ message: "parentId, newUserId, position required" });
+    }
 
-    let queue = [{ node: root, depth: 0 }];
-    const results = [];
+    const parent = await User.findOne({ gsmId: parentId });
+    const child = await User.findOne({ gsmId: newUserId });
+
+    if (!parent || !child) {
+      return res.status(404).json({ message: "Parent or child user not found" });
+    }
+
+    if (position === "left") {
+      if (parent.leftChild) {
+        return res.status(400).json({ message: "Left position already occupied" });
+      }
+      parent.leftChild = newUserId;
+    }
+
+    else if (position === "right") {
+      if (parent.rightChild) {
+        return res.status(400).json({ message: "Right position already occupied" });
+      }
+      parent.rightChild = newUserId;
+    }
+
+    else {
+      return res.status(400).json({ message: "Position must be left or right" });
+    }
+
+    child.parentId = parentId;
+
+    await parent.save();
+    await child.save();
+
+    res.json({
+      message: "User placed successfully",
+      parentId,
+      newUserId,
+      position
+    });
+
+  } catch (err) {
+    console.error("placeUserInTree Error", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+
+/**
+ * GET DOWNLINE MEMBERS UPTO X LEVEL
+ * /api/genealogy/downline/:userId/:level?
+ */
+export const getDownline = async (req, res) => {
+  try {
+    const { userId, level = 3 } = req.params;
+
+    const root = await User.findOne({ gsmId: userId });
+
+    if (!root) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // BFS traversal
+    const queue = [{ id: root.gsmId, lvl: 0 }];
+    const result = [];
 
     while (queue.length) {
-      const { node, depth } = queue.shift();
-      if (depth > 0) {
-        const user = await User.findById(node.user).select('fullName email');
-        results.push({ user, depth });
-      }
-      if (depth >= level) continue;
+      const { id, lvl } = queue.shift();
 
-      if (node.left) {
-        const leftNode = await Tree.findOne({ user: node.left });
-        if (leftNode) queue.push({ node: leftNode, depth: depth + 1 });
+      if (lvl >= level) continue;
+
+      const user = await User.findOne({ gsmId: id });
+
+      if (!user) continue;
+
+      if (user.leftChild) {
+        result.push({
+          parent: id,
+          child: user.leftChild,
+          position: "left",
+          level: lvl + 1
+        });
+        queue.push({ id: user.leftChild, lvl: lvl + 1 });
       }
-      if (node.right) {
-        const rightNode = await Tree.findOne({ user: node.right });
-        if (rightNode) queue.push({ node: rightNode, depth: depth + 1 });
+
+      if (user.rightChild) {
+        result.push({
+          parent: id,
+          child: user.rightChild,
+          position: "right",
+          level: lvl + 1
+        });
+        queue.push({ id: user.rightChild, lvl: lvl + 1 });
       }
     }
 
-    res.json({ root: root.user, downline: results });
+    res.json({
+      requestedUser: userId,
+      levels: parseInt(level),
+      downline: result
+    });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
+    console.error("getDownline Error", err);
+    res.status(500).json({ message: "Server error" });
   }
 };
