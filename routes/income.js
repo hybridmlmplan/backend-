@@ -1,7 +1,8 @@
-const express = require("express");
+import express from "express";
+import * as income from "../controllers/incomeController.js";
+import auth from "../middleware/authmiddleware.js";
+
 const router = express.Router();
-const income = require("../controllers/incomeController");
-const auth = require("../middleware/authmiddleware");
 
 // DIRECT INCOME
 router.get("/direct/:userId", auth, income.getDirectIncome);
@@ -21,4 +22,4 @@ router.get("/royalty/:userId", auth, income.getRoyaltyIncome);
 // FUND INCOME (repurchase)
 router.get("/fund/:userId", auth, income.getFundIncome);
 
-module.exports = router;
+export default router;
