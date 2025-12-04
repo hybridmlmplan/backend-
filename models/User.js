@@ -17,6 +17,10 @@ const userSchema = new mongoose.Schema(
     // ------------------------------
     sponsorId: String,
     referralId: String,
+
+    // 🔥 FIXED (THIS WAS MISSING)
+    placementId: String,
+
     placementSide: { type: String, enum: ["left", "right"] },
 
     // ------------------------------
@@ -30,6 +34,7 @@ const userSchema = new mongoose.Schema(
     // PACKAGE SYSTEM
     // ------------------------------
     currentPackage: { type: String, default: "none" }, // silver/gold/ruby
+
     packageHistory: [
       {
         packageName: String,
@@ -81,6 +86,7 @@ const userSchema = new mongoose.Schema(
     // OPTIONAL TREE HISTORY (KEEPING YOUR OLD SYSTEM)
     // ------------------------------
     treeParent: String,
+
     treeChildren: {
       type: [
         {
