@@ -83,7 +83,6 @@ export const getMatchingIncome = async (req, res) => {
     return res.status(500).json({ message: "Server Error" });
   }
 };
-
 // ======================
 // 5) ROYALTY INCOME
 // ======================
@@ -108,7 +107,7 @@ export const getRoyaltyIncome = async (req, res) => {
 // ======================
 // 6) FUND INCOME / REPURCHASE
 // ======================
-export const getFundIncome = async (req, res) => {
+export const getFundIncome = async (req, res) => { 
   try {
     const userId = req.params.userId;
 
@@ -125,3 +124,4 @@ export const getFundIncome = async (req, res) => {
     return res.status(500).json({ message: "Server Error" });
   }
 };
+
