@@ -23,7 +23,7 @@ const generateUserId = async () => {
 // ======================================================
 export const signup = async (req, res) => {
   try {
-    const { name, phone, password, sponsorId, placementId } = req.body;
+    const { name, phone, password, sponsorId, placementSide } = req.body;
 
     // -------------------------------------------------
     // VALIDATIONS
@@ -73,7 +73,18 @@ export const signup = async (req, res) => {
       phone,
       password: hashedPassword,
       sponsorId,
-      placementId: placementId || null, // OPTIONAL
+      placementSide: placementSide || null, // OPTIONAL
+
+      // required fields
+      session: 1,
+      joinedDate: new Date(),
+      renewalDate: new Date(),
+
+      // defaults
+      status: "inactive",
+      currentPackage: "none",
+      pv: 0,
+      bv: 0,
     });
 
     await user.save();
@@ -82,7 +93,7 @@ export const signup = async (req, res) => {
       status: true,
       message: "Signup successful",
       userId: user.userId,
-      session: 1,
+      session: user.session,
     });
 
   } catch (error) {
@@ -108,9 +119,6 @@ export const login = async (req, res) => {
       });
     }
 
-    // -------------------------------------------------
-    // CHECK USER EXISTS
-    // -------------------------------------------------
     const user = await User.findOne({ phone });
     if (!user) {
       return res.status(400).json({
@@ -119,9 +127,6 @@ export const login = async (req, res) => {
       });
     }
 
-    // -------------------------------------------------
-    // CHECK PASSWORD MATCH
-    // -------------------------------------------------
     const isMatch = bcrypt.compareSync(password, user.password);
     if (!isMatch) {
       return res.status(400).json({
@@ -130,20 +135,10 @@ export const login = async (req, res) => {
       });
     }
 
-    // -------------------------------------------------
-    // OPTIONALLY GENERATE JWT (can use if needed)
-    // -------------------------------------------------
-    // const token = jwt.sign(
-    //   { userId: user.userId },
-    //   process.env.JWT_SECRET,
-    //   { expiresIn: "7d" }
-    // );
-
     return res.status(200).json({
       status: true,
       message: "Login successful",
       userId: user.userId,
-      // token,
     });
 
   } catch (error) {
