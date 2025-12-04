@@ -1,24 +1,20 @@
 import BVHistory from "../models/BVHistory.js";
-const User = require("../models/User");
-const BVHistory = require("../models/BVHistory");
-const PVHistory = require("../models/PVHistory");
-const PairEngine = require("../utils/pairengine");
 
 // ======================
 // 1) DIRECT INCOME
 // ======================
-exports.getDirectIncome = async (req, res) => {
+export const getDirectIncome = async (req, res) => {
   try {
     const userId = req.params.userId;
 
-    const directIncome = await BVHistory.find({
+    const entries = await BVHistory.find({
       user: userId,
-      type: "direct"
+      type: "direct",
     }).sort({ createdAt: -1 });
 
-    const total = directIncome.reduce((a, b) => a + b.amount, 0);
+    const total = entries.reduce((sum, i) => sum + (i.amount || 0), 0);
 
-    return res.json({ total, entries: directIncome });
+    return res.json({ total, entries });
   } catch (err) {
     console.error("Direct Income Error:", err);
     return res.status(500).json({ message: "Server Error" });
@@ -28,16 +24,16 @@ exports.getDirectIncome = async (req, res) => {
 // ======================
 // 2) LEVEL INCOME
 // ======================
-exports.getLevelIncome = async (req, res) => {
+export const getLevelIncome = async (req, res) => {
   try {
     const userId = req.params.userId;
 
     const entries = await BVHistory.find({
       user: userId,
-      type: "level"
+      type: "level",
     }).sort({ createdAt: -1 });
 
-    const total = entries.reduce((a, b) => a + b.amount, 0);
+    const total = entries.reduce((sum, i) => sum + (i.amount || 0), 0);
 
     return res.json({ total, entries });
   } catch (err) {
@@ -49,16 +45,16 @@ exports.getLevelIncome = async (req, res) => {
 // ======================
 // 3) BINARY INCOME
 // ======================
-exports.getBinaryIncome = async (req, res) => {
+export const getBinaryIncome = async (req, res) => {
   try {
     const userId = req.params.userId;
 
     const entries = await BVHistory.find({
       user: userId,
-      type: "binary"
+      type: "binary",
     }).sort({ createdAt: -1 });
 
-    const total = entries.reduce((a, b) => a + b.amount, 0);
+    const total = entries.reduce((sum, i) => sum + (i.amount || 0), 0);
 
     return res.json({ total, entries });
   } catch (err) {
@@ -70,16 +66,16 @@ exports.getBinaryIncome = async (req, res) => {
 // ======================
 // 4) MATCHING INCOME
 // ======================
-exports.getMatchingIncome = async (req, res) => {
+export const getMatchingIncome = async (req, res) => {
   try {
     const userId = req.params.userId;
 
     const entries = await BVHistory.find({
       user: userId,
-      type: "matching"
+      type: "matching",
     }).sort({ createdAt: -1 });
 
-    const total = entries.reduce((a, b) => a + b.amount, 0);
+    const total = entries.reduce((sum, i) => sum + (i.amount || 0), 0);
 
     return res.json({ total, entries });
   } catch (err) {
@@ -91,16 +87,16 @@ exports.getMatchingIncome = async (req, res) => {
 // ======================
 // 5) ROYALTY INCOME
 // ======================
-exports.getRoyaltyIncome = async (req, res) => {
+export const getRoyaltyIncome = async (req, res) => {
   try {
     const userId = req.params.userId;
 
     const entries = await BVHistory.find({
       user: userId,
-      type: "royalty"
+      type: "royalty",
     }).sort({ createdAt: -1 });
 
-    const total = entries.reduce((a, b) => a + b.amount, 0);
+    const total = entries.reduce((sum, i) => sum + (i.amount || 0), 0);
 
     return res.json({ total, entries });
   } catch (err) {
@@ -112,16 +108,16 @@ exports.getRoyaltyIncome = async (req, res) => {
 // ======================
 // 6) FUND INCOME / REPURCHASE
 // ======================
-exports.getFundIncome = async (req, res) => {
+export const getFundIncome = async (req, res) => {
   try {
     const userId = req.params.userId;
 
     const entries = await BVHistory.find({
       user: userId,
-      type: "fund"
+      type: "fund",
     }).sort({ createdAt: -1 });
 
-    const total = entries.reduce((a, b) => a + b.amount, 0);
+    const total = entries.reduce((sum, i) => sum + (i.amount || 0), 0);
 
     return res.json({ total, entries });
   } catch (err) {
