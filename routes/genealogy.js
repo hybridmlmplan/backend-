@@ -1,10 +1,24 @@
-const express = require('express');
+import express from "express";
+import {
+  getTreeByUser,
+  placeUserInTree,
+  getDownline
+} from "../controllers/genealogyController.js";
+
+import {
+  protect,
+  verifyAdmin
+} from "../middleware/authMiddleware.js";
+
 const router = express.Router();
-const genealogyController = require('../controllers/genealogyController');
-const authMiddleware = require('../middleware/authMiddleware');
 
-router.get('/tree/:userId', authMiddleware.protect, genealogyController.getTreeByUser);
-router.post('/place-user', authMiddleware.verifyAdmin, genealogyController.placeUserInTree); // placement API
-router.get('/downline/:userId/:level?', authMiddleware.protect, genealogyController.getDownline);
+// GET TREE
+router.get("/tree/:userId", protect, getTreeByUser);
 
-module.exports = router;
+// PLACE USER (admin)
+router.post("/place-user", verifyAdmin, placeUserInTree);
+
+// GET DOWNLINE (optional level)
+router.get("/downline/:userId/:level?", protect, getDownline);
+
+export default router;
