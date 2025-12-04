@@ -1,32 +1,25 @@
 import express from "express";
-import * as incomeController from "../controllers/incomeController.js";
-import authMiddleware from "../middleware/authMiddleware.js";
+import { protect } from "../middleware/authMiddleware.js";
+import * as income from "../controllers/incomeController.js";
 
 const router = express.Router();
 
-// ===============================
-// INCOME ROUTES
-// ===============================
-
 // DIRECT INCOME
-router.get("/direct/:userId", authMiddleware, incomeController.getDirectIncome);
+router.get("/direct/:userId", protect, income.getDirectIncome);
 
 // LEVEL INCOME
-router.get("/level/:userId", authMiddleware, incomeController.getLevelIncome);
+router.get("/level/:userId", protect, income.getLevelIncome);
 
 // BINARY INCOME
-router.get("/binary/:userId", authMiddleware, incomeController.getBinaryIncome);
+router.get("/binary/:userId", protect, income.getBinaryIncome);
 
-// MATCHING / PAIR INCOME
-router.get("/matching/:userId", authMiddleware, incomeController.getMatchingIncome);
+// MATCHING INCOME
+router.get("/matching/:userId", protect, income.getMatchingIncome);
 
 // ROYALTY INCOME
-router.get("/royalty/:userId", authMiddleware, incomeController.getRoyaltyIncome);
+router.get("/royalty/:userId", protect, income.getRoyaltyIncome);
 
-// FUND INCOME (repurchase / special fund wallet)
-router.get("/fund/:userId", authMiddleware, incomeController.getFundIncome);
+// FUND INCOME (repurchase)
+router.get("/fund/:userId", protect, income.getFundIncome);
 
-// ===============================
-// EXPORT ROUTER
-// ===============================
 export default router;
