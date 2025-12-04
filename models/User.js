@@ -23,7 +23,7 @@ const userSchema = new mongoose.Schema(
     // JOINING / SESSION / STATUS
     // ------------------------------
     joinedDate: Date,
-    session: { type: Number, required: true }, // 1 or 2 (Required)
+    session: { type: Number, required: true }, // 1 or 2
     status: { type: String, default: "inactive" }, // active after activation
 
     // ------------------------------
@@ -47,6 +47,7 @@ const userSchema = new mongoose.Schema(
 
     leftPV: { type: Number, default: 0 },
     rightPV: { type: Number, default: 0 },
+
     leftCarry: { type: Number, default: 0 },
     rightCarry: { type: Number, default: 0 },
 
@@ -69,7 +70,15 @@ const userSchema = new mongoose.Schema(
     },
 
     // ------------------------------
-    // GENEALOGY TREE
+    // BINARY GENEALOGY TREE (NEW)
+    // ------------------------------
+    parentId: { type: String, default: null },
+
+    leftChild: { type: String, default: null },
+    rightChild: { type: String, default: null },
+
+    // ------------------------------
+    // OPTIONAL TREE HISTORY (KEEPING YOUR OLD SYSTEM)
     // ------------------------------
     treeParent: String,
     treeChildren: {
