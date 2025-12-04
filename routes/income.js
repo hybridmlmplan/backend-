@@ -1,25 +1,25 @@
 import express from "express";
-import { protect } from "../middleware/authMiddleware.js";
+import auth from "../middleware/authMiddleware.js";
 import * as income from "../controllers/incomeController.js";
 
 const router = express.Router();
 
 // DIRECT INCOME
-router.get("/direct/:userId", protect, income.getDirectIncome);
+router.get("/direct/:userId", auth, income.getDirectIncome);
 
 // LEVEL INCOME
-router.get("/level/:userId", protect, income.getLevelIncome);
+router.get("/level/:userId", auth, income.getLevelIncome);
 
 // BINARY INCOME
-router.get("/binary/:userId", protect, income.getBinaryIncome);
+router.get("/binary/:userId", auth, income.getBinaryIncome);
 
 // MATCHING INCOME
-router.get("/matching/:userId", protect, income.getMatchingIncome);
+router.get("/matching/:userId", auth, income.getMatchingIncome);
 
 // ROYALTY INCOME
-router.get("/royalty/:userId", protect, income.getRoyaltyIncome);
+router.get("/royalty/:userId", auth, income.getRoyaltyIncome);
 
 // FUND INCOME (repurchase)
-router.get("/fund/:userId", protect, income.getFundIncome);
+router.get("/fund/:userId", auth, income.getFundIncome);
 
 export default router;
