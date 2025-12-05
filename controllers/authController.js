@@ -1,33 +1,41 @@
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 
 // =======================================
 // Helper: Generate Unique UserID (GSM0001)
 // =======================================
 const generateUserId = async () => {
-  const lastUser = await User.find().sort({ createdAt: -1 }).limit(1);
+  const lastUser = await User.findOne().sort({ createdAt: -1 });
 
-  if (!lastUser || lastUser.length === 0) {
-    return "GSM0001";
-  }
+  if (!lastUser) return "GSM0001";
 
-  const lastId = lastUser[0].userId;
+  const lastId = lastUser.userId || "GSM0000";
   const num = parseInt(lastId.replace("GSM", "")) + 1;
 
   return "GSM" + num.toString().padStart(4, "0");
 };
 
 // ======================================================
-// SIGNUP CONTROLLER (Sponsor Required, Placement Optional)
+// SIGNUP CONTROLLER
+// Sponsor REQUIRED
+// PlacementId OPTIONAL
+// Email MULTIPLE accounts allowed
+// Phone UNIQUE
 // ======================================================
 export const signup = async (req, res) => {
   try {
-    const { name, phone, password, sponsorId, placementSide } = req.body;
+    const {
+      name,
+      phone,
+      password,
+      sponsorId,
+      placementId,
+      placementSide,
+      packageType,
+      email,
+    } = req.body;
 
-    // -------------------------------------------------
-    // VALIDATIONS
-    // -------------------------------------------------
+    // 1) VALIDATIONS
     if (!name || !phone || !password) {
       return res.status(400).json({
         status: false,
@@ -42,58 +50,51 @@ export const signup = async (req, res) => {
       });
     }
 
-    // -------------------------------------------------
-    // CHECK DUPLICATE PHONE
-    // -------------------------------------------------
+    // 2) CHECK UNIQUE PHONE (email allowed multiple)
     const phoneExists = await User.findOne({ phone });
     if (phoneExists) {
       return res.status(400).json({
         status: false,
-        message: "Phone already registered.",
+        message: "Phone already registered",
       });
     }
 
-    // -------------------------------------------------
-    // HASH PASSWORD
-    // -------------------------------------------------
+    // 3) HASH PASSWORD
     const salt = bcrypt.genSaltSync(10);
     const hashedPassword = bcrypt.hashSync(password, salt);
 
-    // -------------------------------------------------
-    // GENERATE USER ID
-    // -------------------------------------------------
+    // 4) GENERATE USER ID
     const userId = await generateUserId();
 
-    // -------------------------------------------------
-    // CREATE USER
-    // -------------------------------------------------
-    const user = new User({
+    // 5) CREATE NEW USER
+    const user = await User.create({
       userId,
       name,
       phone,
+      email: email || null,
       password: hashedPassword,
-      sponsorId,
+
+      sponsorId,                     // REQUIRED
+      placementId: placementId || null, // OPTIONAL
       placementSide: placementSide || null, // OPTIONAL
 
-      // required fields
+      packageType: packageType || "silver",
+
       session: 1,
       joinedDate: new Date(),
       renewalDate: new Date(),
 
-      // defaults
       status: "inactive",
-      currentPackage: "none",
+
       pv: 0,
       bv: 0,
     });
 
-    await user.save();
-
-    return res.status(200).json({
+    return res.status(201).json({
       status: true,
       message: "Signup successful",
       userId: user.userId,
-      session: user.session,
+      loginPhone: user.phone,
     });
 
   } catch (error) {
