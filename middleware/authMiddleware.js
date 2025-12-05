@@ -1,7 +1,10 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
-export default async function authMiddleware(req, res, next) {
+// ==============================
+// Named Export (protect)
+// ==============================
+export const protect = async (req, res, next) => {
   try {
     const token = req.headers["authorization"];
 
@@ -37,3 +40,8 @@ export default async function authMiddleware(req, res, next) {
     });
   }
 };
+
+// ==============================
+// Default Export (Backward support)
+// ==============================
+export default protect;
