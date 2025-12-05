@@ -1,21 +1,35 @@
-import express from 'express';
-import dotenv from 'dotenv';
-import cors from 'cors';
-import connectDB from './config/db.js';
+import express from "express";
+import dotenv from "dotenv";
+import cors from "cors";
+import connectDB from "./config/db.js";
 
-import authRoute from './routes/auth.js';
-import incomeRoute from './routes/income.js';
+import authRoute from "./routes/auth.js";
+import userRoute from "./routes/user.js";      // ADD THIS
+import rankRoute from "./routes/rank.js";      // ADD THIS
+import genealogyRoute from "./routes/genealogy.js"; // ADD THIS
+import incomeRoute from "./routes/income.js";
 
 dotenv.config();
 connectDB();
 
 const app = express();
+
+// Middleware
 app.use(express.json());
 app.use(cors());
 
-app.use('/api/auth', authRoute);
-app.use('/api/income', incomeRoute);
+// Routes
+app.use("/api/auth", authRoute);
+app.use("/api/user", userRoute);              // MISSING ROUTE
+app.use("/api/rank", rankRoute);              // MISSING ROUTE
+app.use("/api/genealogy", genealogyRoute);    // MISSING ROUTE
+app.use("/api/income", incomeRoute);
 
-app.listen(process.env.PORT || 5000, () =>
-  console.log(`Backend running on PORT ${process.env.PORT || 5000}`)
-);
+// Health check
+app.get("/", (req, res) => {
+  res.send("Hybrid MLM Backend API is running...");
+});
+
+// Listen
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Backend running on PORT ${PORT}`));
