@@ -5,10 +5,12 @@ const userSchema = new mongoose.Schema(
     // ------------------------------
     // BASIC USER DETAILS
     // ------------------------------
-    userId: { type: String, unique: true }, // SP0001 / GP0001 / RP0001
+    userId: { type: String, unique: true },
     name: String,
-    email: { type: String, unique: true },
-    phone: { type: String, unique: true },
+
+    email: { type: String }, // unlimited usage allowed (no unique)
+    phone: { type: String }, // no unique, login by userId
+
     password: String,
     upiId: String,
 
@@ -18,22 +20,22 @@ const userSchema = new mongoose.Schema(
     sponsorId: String,
     referralId: String,
 
-    // 🔥 FIXED (THIS WAS MISSING)
-    placementId: String,
-
-    placementSide: { type: String, enum: ["left", "right"] },
+    placementId: String, // optional
+    placementSide: { type: String, enum: ["left", "right", null], default: null },
 
     // ------------------------------
     // JOINING / SESSION / STATUS
     // ------------------------------
-    joinedDate: Date,
-    session: { type: Number, required: true }, // 1 or 2
-    status: { type: String, default: "inactive" }, // active after activation
+    joinedDate: { type: Date, default: Date.now },
+
+    session: { type: Number, default: 1 },
+
+    status: { type: String, default: "inactive" },
 
     // ------------------------------
     // PACKAGE SYSTEM
     // ------------------------------
-    currentPackage: { type: String, default: "none" }, // silver/gold/ruby
+    currentPackage: { type: String, default: "none" },
 
     packageHistory: [
       {
@@ -60,8 +62,8 @@ const userSchema = new mongoose.Schema(
     // LEVEL / RANK SYSTEM
     // ------------------------------
     directCount: { type: Number, default: 0 },
-    level: { type: String, default: "None" }, // Star1, Star2, Star3
-    rank: { type: String, default: "None" }, // Silver Star → Company Star etc.
+    level: { type: String, default: "None" },
+    rank: { type: String, default: "None" },
 
     // ------------------------------
     // WALLET SYSTEM
@@ -75,16 +77,13 @@ const userSchema = new mongoose.Schema(
     },
 
     // ------------------------------
-    // BINARY GENEALOGY TREE (NEW)
+    // BINARY GENEALOGY TREE
     // ------------------------------
     parentId: { type: String, default: null },
 
     leftChild: { type: String, default: null },
     rightChild: { type: String, default: null },
 
-    // ------------------------------
-    // OPTIONAL TREE HISTORY (KEEPING YOUR OLD SYSTEM)
-    // ------------------------------
     treeParent: String,
 
     treeChildren: {
@@ -101,7 +100,7 @@ const userSchema = new mongoose.Schema(
     // ------------------------------
     // RENEWAL SYSTEM
     // ------------------------------
-    renewalDate: { type: Date, required: true }, // Always Silver join date
+    renewalDate: { type: Date, default: Date.now },
     extraPV: { type: Number, default: 0 },
 
     // ------------------------------
