@@ -12,7 +12,9 @@ import incomeRoute from "./routes/income.js";
 
 dotenv.config();
 
+// ======================
 // Connect DB
+// ======================
 connectDB();
 
 const app = express();
@@ -22,17 +24,17 @@ const app = express();
 // ======================
 app.use(
   cors({
-    origin: "*", // TODO: change to your frontend URL in future
-    methods: "GET,POST,PUT,DELETE",
+    origin: "*", // TODO: change to FE url later
+    methods: ["GET", "POST", "PUT", "DELETE"],
   })
 );
 
 // Body parser
 app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // ======================
-// Routes
+// API Routes
 // ======================
 app.use("/api/auth", authRoute);
 app.use("/api/user", userRoute);
@@ -46,10 +48,10 @@ app.use("/api/income", incomeRoute);
 app.get("/", (req, res) => {
   res.status(200).send(`
     <html>
-    <body style="font-family: sans-serif; padding: 20px;">
-      <h2>Hybrid MLM Backend API Working 🚀</h2>
-      <p>Status: <b>Running</b></p>
-    </body>
+      <body style="font-family: sans-serif; padding: 20px;">
+        <h2>Hybrid MLM Backend API Running 🚀</h2>
+        <p>Status: <b>OK</b></p>
+      </body>
     </html>
   `);
 });
@@ -59,7 +61,7 @@ app.get("/", (req, res) => {
 // ======================
 app.use((req, res) => {
   res.status(404).json({
-    success: false,
+    status: false,
     message: "API route not found",
   });
 });
@@ -68,22 +70,20 @@ app.use((req, res) => {
 // Global Error Handler
 // ======================
 app.use((err, req, res, next) => {
-  console.error("Server Error:", err);
+  console.error("Global Server Error:", err);
 
   res.status(500).json({
-    success: false,
+    status: false,
     message: "Internal server error",
-    error: err.message,
+    error: err?.message || "Something went wrong",
   });
 });
 
 // ======================
-// Server Listen
+// Start Server
 // ======================
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-  console.log(`🚀 Backend running on PORT ${PORT}`);
+  console.log(`🚀 Backend running on port ${PORT}`);
 });
-
-export default app;
