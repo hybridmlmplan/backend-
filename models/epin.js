@@ -1,49 +1,18 @@
 import mongoose from "mongoose";
 
-const epinSchema = new mongoose.Schema(
-  {
-    epinCode: { type: String, unique: true, required: true }, 
-    // Example: SP-123456, GP-987654, RP-555666
-
-    packageType: {
-      type: String,
-      enum: ["silver", "gold", "ruby"],
-      required: true,
-    },
-
-    generatedBy: {
-      type: String, // adminId or userId
-    },
-
-    assignedTo: {
-      type: String, // userId who received this pin
-      default: null,
-    },
-
-    usedBy: {
-      type: String, // userId who activated package
-      default: null,
-    },
-
-    isUsed: { type: Boolean, default: false },
-
-    usedDate: {
-      type: Date,
-      default: null,
-    },
-
-    transferHistory: [
-      {
-        from: String,
-        to: String,
-        date: { type: Date, default: Date.now },
-      },
-    ],
-
-    // ❗ PIN NEVER EXPIRES
-    expires: { type: Boolean, default: false },
+const epinSchema = new mongoose.Schema({
+  code: { type: String, unique: true },
+  package: String,
+  createdBy: String, // admin/user
+  assignedTo: String, // userId
+  usedBy: String,
+  usedAt: Date,
+  status: {
+    type: String,
+    enum: ["unused", "used"],
+    default: "unused",
   },
-  { timestamps: true }
-);
+  createdAt: { type: Date, default: Date.now },
+});
 
-export default mongoose.model("EPIN", epinSchema);
+export default mongoose.model("Epin", epinSchema);
