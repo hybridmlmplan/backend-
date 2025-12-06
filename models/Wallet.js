@@ -1,12 +1,11 @@
-const mongoose = require('mongoose');
+import mongoose from "mongoose";
 
-const WalletSchema = new mongoose.Schema({
-  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
-  balance: { type: Number, default: 0 },
-  pending: { type: Number, default: 0 },
-  creditHistory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'BVHistory' }], // refs
-  debitHistory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'BVHistory' }],
-  updatedAt: { type: Date, default: Date.now }
+const walletSchema = new mongoose.Schema({
+  userId: String,
+  amount: Number,
+  type: { type: String }, // binary, royalty, level, fund
+  remark: String,
+  createdAt: { type: Date, default: Date.now },
 });
 
-module.exports = mongoose.model('Wallet', WalletSchema);
+export default mongoose.model("Wallet", walletSchema);
