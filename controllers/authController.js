@@ -1,6 +1,6 @@
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
+import { generateUserId } from "../utils/generateUserId.js";
 
 // ======================================================
 // SIGNUP CONTROLLER
@@ -18,53 +18,61 @@ export const signup = async (req, res) => {
       email,
     } = req.body;
 
-    if (!name || !phone || !password)
+    // Basic validation
+    if (!name || !phone || !password) {
       return res.status(400).json({
         status: false,
         message: "Name, phone & password are required",
       });
+    }
 
-    if (!sponsorId)
+    if (!sponsorId) {
       return res.status(400).json({
         status: false,
         message: "Sponsor ID is required",
       });
+    }
 
+    // Phone already exists?
     const phoneExists = await User.findOne({ phone });
-    if (phoneExists)
+    if (phoneExists) {
       return res.status(400).json({
         status: false,
         message: "Phone already registered",
       });
+    }
 
+    // Sponsor valid?
     const sponsor = await User.findOne({ userId: sponsorId });
-    if (!sponsor)
+    if (!sponsor) {
       return res.status(400).json({
         status: false,
         message: "Invalid sponsor ID",
       });
+    }
 
-    let validPlacement = null;
+    // Placement check if provided
     if (placementId) {
-      validPlacement = await User.findOne({ userId: placementId });
-      if (!validPlacement)
+      const placement = await User.findOne({ userId: placementId });
+      if (!placement) {
         return res.status(400).json({
           status: false,
           message: "Invalid placement ID",
         });
+      }
     }
 
-    // hash password
+    // Hash password
     const salt = bcrypt.genSaltSync(10);
     const hashedPassword = bcrypt.hashSync(password, salt);
 
-    // generate user ID
+    // Generate user ID
     const userId = await generateUserId();
 
     const finalPackage =
       (packageType || "silver").toString().trim().toLowerCase();
 
-    // 1) CREATE USER
+    // Create user
     await User.create({
       userId,
       name,
@@ -75,21 +83,23 @@ export const signup = async (req, res) => {
       placementId: placementId || null,
       placementSide: placementSide || null,
       packageType: finalPackage,
+
       session: 1,
       joinedDate: new Date(),
       renewalDate: new Date(),
       status: "inactive",
+
       pv: 0,
       bv: 0,
     });
 
-    // 2) UPDATE SPONSOR DIRECTS
+    // Update sponsor directs
     await User.findOneAndUpdate(
       { userId: sponsorId },
       { $inc: { directs: 1 } }
     );
 
-    // 3) UPDATE PLACEMENT TREE
+    // Placement left/right mapping
     if (placementId && placementSide) {
       if (placementSide === "left") {
         await User.findOneAndUpdate(
@@ -104,7 +114,7 @@ export const signup = async (req, res) => {
       }
     }
 
-    // 4) UPDATE USER TREE DATA
+    // Tree data
     await User.findOneAndUpdate(
       { userId },
       {
@@ -113,7 +123,7 @@ export const signup = async (req, res) => {
       }
     );
 
-    // 5) LEVEL MAPPING (up to 10 levels)
+    // Level mapping (1-10)
     let current = await User.findOne({ userId: sponsorId });
 
     for (let level = 1; level <= 10; level++) {
@@ -129,6 +139,7 @@ export const signup = async (req, res) => {
       current = await User.findOne({ userId: current.sponsorId });
     }
 
+    // Response
     return res.status(201).json({
       status: true,
       message: "Signup successful",
@@ -147,45 +158,54 @@ export const signup = async (req, res) => {
 
 
 // ======================================================
-// LOGIN CONTROLLER
+// LOGIN CONTROLLER (TOKEN FREE)
 // ======================================================
 export const login = async (req, res) => {
   try {
     const { phone, password } = req.body;
 
-    if (!phone || !password)
+    if (!phone || !password) {
       return res.status(400).json({
         status: false,
         message: "Phone and password are required",
       });
+    }
 
     const user = await User.findOne({ phone });
-    if (!user)
+
+    if (!user) {
       return res.status(400).json({
         status: false,
         message: "User not found",
       });
+    }
 
     const isMatch = bcrypt.compareSync(password, user.password);
-    if (!isMatch)
+
+    if (!isMatch) {
       return res.status(400).json({
         status: false,
         message: "Invalid password",
       });
+    }
 
-    const token = jwt.sign(
-      { id: user.userId, phone: user.phone },
-      "SECRET_KEY",
-      { expiresIn: "7d" }
-    );
-
+    // SUCCESS - return user identity only
     return res.status(200).json({
       status: true,
       message: "Login successful",
-      token,
+
+      // No token
       userId: user.userId,
       name: user.name,
-      phone: user.phone
+      phone: user.phone,
+      role: user.role || "user",
+
+      // For MLM plan
+      rank: user.rank || "Star",
+      pv: user.pv || 0,
+      bv: user.bv || 0,
+      wallet: user.wallet || 0,
+      packageType: user.packageType || "silver",
     });
 
   } catch (error) {
