@@ -1,9 +1,9 @@
 import express from "express";
 import {
+  getDirectsByUser,
   getTreeByUser,
   placeUserInTree,
-  getDownline,
-  getDirectsByUser
+  getDownline
 } from "../controllers/genealogyController.js";
 
 import {
@@ -13,24 +13,16 @@ import {
 
 const router = express.Router();
 
-// =============================
-// GET TREE
-// =============================
+// PUBLIC TEST ROUTE (no token)
+router.get("/directs/:userId", getDirectsByUser);
+
+// GET TREE (protected)
 router.get("/tree/:userId", protect, getTreeByUser);
 
-// =============================
 // PLACE USER (admin)
-// =============================
 router.post("/place-user", verifyAdmin, placeUserInTree);
 
-// =============================
-// GET DOWNLINE (optional level)
-// =============================
+// GET DOWNLINE (protected)
 router.get("/downline/:userId/:level?", protect, getDownline);
-
-// ====================================
-// NEW: GET DIRECT TEAM LIST
-// ====================================
-router.get("/directs/:userId", protect, getDirectsByUser);
 
 export default router;
