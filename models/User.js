@@ -1,147 +1,46 @@
 import mongoose from "mongoose";
 
-const userSchema = new mongoose.Schema(
-  {
-    // ------------------------------
-    // BASIC USER DETAILS
-    // ------------------------------
-    userId: { type: String, unique: true },
-    name: String,
+const userSchema = new mongoose.Schema({
+  userId: { type: String, unique: true }, // GSM0001
 
-    email: { type: String }, // unlimited usage allowed (no unique)
-    phone: { type: String }, // no unique, login by userId
+  name: { type: String, required: true },
+  phone: { type: String, required: true, unique: true },
+  email: { type: String }, // multiple time use allowed
 
-    password: String,
-    upiId: String,
+  password: { type: String, required: true },
 
-    // ------------------------------
-    // SPONSOR / REFERRAL / PLACEMENT
-    // ------------------------------
-    sponsorId: String,
-    referralId: String,
+  sponsorId: { type: String, required: true }, // parent
+  placementId: { type: String }, // blank allowed
+  placementSide: { type: String, enum: ["left", "right"], required: true },
 
-    placementId: String, // optional
-    placementSide: { type: String, enum: ["left", "right", null], default: null },
-
-    // ------------------------------
-    // JOINING / SESSION / STATUS
-    // ------------------------------
-    joinedDate: { type: Date, default: Date.now },
-
-    session: { type: Number, default: 1 },
-
-    status: { type: String, default: "inactive" },
-
-    // ------------------------------
-    // PACKAGE SYSTEM
-    // ------------------------------
-    currentPackage: { type: String, default: "none" },
-
-    packageHistory: [
-      {
-        packageName: String,
-        amount: Number,
-        pv: Number,
-        activationDate: Date,
-      },
-    ],
-
-    // ------------------------------
-    // PV / BV SYSTEM
-    // ------------------------------
-    pv: { type: Number, default: 0 },
-    bv: { type: Number, default: 0 },
-
-    leftPV: { type: Number, default: 0 },
-    rightPV: { type: Number, default: 0 },
-
-    leftCarry: { type: Number, default: 0 },
-    rightCarry: { type: Number, default: 0 },
-
-    // ------------------------------
-    // LEVEL / RANK SYSTEM
-    // ------------------------------
-    directCount: { type: Number, default: 0 },
-    level: { type: String, default: "None" },
-    rank: { type: String, default: "None" },
-
-    // ------------------------------
-    // WALLET SYSTEM
-    // ------------------------------
-    wallet: {
-      pairIncome: { type: Number, default: 0 },
-      levelIncome: { type: Number, default: 0 },
-      royaltyIncome: { type: Number, default: 0 },
-      percentageIncome: { type: Number, default: 0 },
-      fundIncome: { type: Number, default: 0 },
-    },
-
-    // ------------------------------
-    // BINARY GENEALOGY TREE
-    // ------------------------------
-    parentId: { type: String, default: null },
-
-    leftChild: { type: String, default: null },
-    rightChild: { type: String, default: null },
-
-    treeParent: String,
-
-    treeChildren: {
-      type: [
-        {
-          userId: String,
-          placementSide: String,
-          joinedDate: Date,
-        },
-      ],
-      default: [],
-    },
-
-    // ------------------------------
-    // RENEWAL SYSTEM
-    // ------------------------------
-    renewalDate: { type: Date, default: Date.now },
-    extraPV: { type: Number, default: 0 },
-
-    // ------------------------------
-    // KYC SYSTEM
-    // ------------------------------
-    kycStatus: {
-      type: String,
-      enum: ["not-submitted", "pending", "approved", "rejected"],
-      default: "not-submitted",
-    },
-
-    // ------------------------------
-    // NOMINEE DETAILS
-    // ------------------------------
-    nominee: {
-      name: String,
-      relation: String,
-      phone: String,
-    },
-
-    // ------------------------------
-    // ADDRESS DETAILS
-    // ------------------------------
-    address: {
-      line1: String,
-      city: String,
-      state: String,
-      pincode: String,
-    },
-
-    // ------------------------------
-    // DOCUMENT UPLOADS
-    // ------------------------------
-    documents: {
-      aadharFront: String,
-      aadharBack: String,
-      panCard: String,
-      profilePhoto: String,
-    },
+  package: {
+    type: String,
+    enum: ["silver", "gold", "ruby"],
+    default: "inactive",
   },
-  { timestamps: true }
-);
+
+  pv: { type: Number, default: 0 },
+  bv: { type: Number, default: 0 },
+
+  status: {
+    type: String,
+    enum: ["active", "inactive"],
+    default: "inactive",
+  },
+
+  activationDate: { type: Date }, // backdate allowed
+  createdAt: { type: Date, default: Date.now },
+
+  rank: { type: String, default: "none" },
+  level: { type: Number, default: 0 },
+
+  walletBalance: { type: Number, default: 0 },
+
+  leftCount: { type: Number, default: 0 },
+  rightCount: { type: Number, default: 0 },
+
+  leftPv: { type: Number, default: 0 },
+  rightPv: { type: Number, default: 0 },
+});
 
 export default mongoose.model("User", userSchema);
