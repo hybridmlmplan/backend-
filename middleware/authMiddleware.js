@@ -14,14 +14,16 @@ const getToken = (req) => {
 };
 
 // ==================================
-// USER AUTH MIDDLEWARE (TEST MODE)
+// USER AUTH MIDDLEWARE
 // ==================================
 export const protect = async (req, res, next) => {
 
   // ======================================================
-  // TESTING MODE BYPASS (remove this after production)
--  // ======================================================
-  return next(); // <-- token not required for testing
+  // TEST MODE: BYPASS AUTH (remove for production)
+  // ======================================================
+  if (process.env.TEST_MODE === "true") {
+    return next();
+  }
 
   try {
     const token = getToken(req);
@@ -33,13 +35,11 @@ export const protect = async (req, res, next) => {
       });
     }
 
-    // verify token
     const decoded = jwt.verify(
       token,
       process.env.JWT_SECRET || "mlmsecret"
     );
 
-    // decoded me "userId" ho, "id" nahi
     const user = await User.findOne({ userId: decoded.userId });
 
     if (!user) {
@@ -63,14 +63,16 @@ export const protect = async (req, res, next) => {
 };
 
 // ==================================
-// ADMIN AUTH MIDDLEWARE (TEST MODE)
+// ADMIN AUTH MIDDLEWARE
 // ==================================
 export const verifyAdmin = async (req, res, next) => {
 
   // ======================================================
-  // TESTING MODE BYPASS (remove this after production)
+  // TEST MODE: BYPASS AUTH (remove for production)
   // ======================================================
-  return next(); // <-- everyone allowed
+  if (process.env.TEST_MODE === "true") {
+    return next();
+  }
 
   try {
     const token = getToken(req);
@@ -82,7 +84,6 @@ export const verifyAdmin = async (req, res, next) => {
       });
     }
 
-    // verify token
     const decoded = jwt.verify(
       token,
       process.env.JWT_SECRET || "mlmsecret"
@@ -97,8 +98,7 @@ export const verifyAdmin = async (req, res, next) => {
       });
     }
 
-    // NOTE:
-    // Your schema me ROLE field nahi hai
+    // if role field exists in future
     if (user.role !== "admin") {
       return res.status(403).json({
         status: false,
