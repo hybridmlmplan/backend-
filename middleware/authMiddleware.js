@@ -14,9 +14,15 @@ const getToken = (req) => {
 };
 
 // ==================================
-// USER AUTH MIDDLEWARE
+// USER AUTH MIDDLEWARE (TEST MODE)
 // ==================================
 export const protect = async (req, res, next) => {
+
+  // ======================================================
+  // TESTING MODE BYPASS (remove this after production)
+-  // ======================================================
+  return next(); // <-- token not required for testing
+
   try {
     const token = getToken(req);
 
@@ -44,7 +50,6 @@ export const protect = async (req, res, next) => {
     }
 
     req.user = user;
-
     next();
 
   } catch (error) {
@@ -57,11 +62,16 @@ export const protect = async (req, res, next) => {
   }
 };
 
-
 // ==================================
-// ADMIN AUTH MIDDLEWARE
+// ADMIN AUTH MIDDLEWARE (TEST MODE)
 // ==================================
 export const verifyAdmin = async (req, res, next) => {
+
+  // ======================================================
+  // TESTING MODE BYPASS (remove this after production)
+  // ======================================================
+  return next(); // <-- everyone allowed
+
   try {
     const token = getToken(req);
 
@@ -89,7 +99,6 @@ export const verifyAdmin = async (req, res, next) => {
 
     // NOTE:
     // Your schema me ROLE field nahi hai
-    // To silent bypass removed
     if (user.role !== "admin") {
       return res.status(403).json({
         status: false,
@@ -98,7 +107,6 @@ export const verifyAdmin = async (req, res, next) => {
     }
 
     req.user = user;
-
     next();
 
   } catch (error) {
