@@ -1,3 +1,7 @@
+import User from "../models/User.js";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+
 // ======================================================
 // SIGNUP CONTROLLER
 // ======================================================
@@ -54,7 +58,7 @@ export const signup = async (req, res) => {
     const salt = bcrypt.genSaltSync(10);
     const hashedPassword = bcrypt.hashSync(password, salt);
 
-    // generate id
+    // generate user ID
     const userId = await generateUserId();
 
     const finalPackage =
@@ -109,7 +113,7 @@ export const signup = async (req, res) => {
       }
     );
 
-    // 5) LEVEL MAPPING
+    // 5) LEVEL MAPPING (up to 10 levels)
     let current = await User.findOne({ userId: sponsorId });
 
     for (let level = 1; level <= 10; level++) {
@@ -137,6 +141,58 @@ export const signup = async (req, res) => {
     return res.status(500).json({
       status: false,
       message: "Server error during signup",
+    });
+  }
+};
+
+
+// ======================================================
+// LOGIN CONTROLLER
+// ======================================================
+export const login = async (req, res) => {
+  try {
+    const { phone, password } = req.body;
+
+    if (!phone || !password)
+      return res.status(400).json({
+        status: false,
+        message: "Phone and password are required",
+      });
+
+    const user = await User.findOne({ phone });
+    if (!user)
+      return res.status(400).json({
+        status: false,
+        message: "User not found",
+      });
+
+    const isMatch = bcrypt.compareSync(password, user.password);
+    if (!isMatch)
+      return res.status(400).json({
+        status: false,
+        message: "Invalid password",
+      });
+
+    const token = jwt.sign(
+      { id: user.userId, phone: user.phone },
+      "SECRET_KEY",
+      { expiresIn: "7d" }
+    );
+
+    return res.status(200).json({
+      status: true,
+      message: "Login successful",
+      token,
+      userId: user.userId,
+      name: user.name,
+      phone: user.phone
+    });
+
+  } catch (error) {
+    console.log("Login error:", error);
+    return res.status(500).json({
+      status: false,
+      message: "Server error during login",
     });
   }
 };
