@@ -1,111 +1,91 @@
-import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
 // ==============================
-// Helper: Get token from Header
+// Helper: Extract userId (no token)
 // ==============================
-const getToken = (req) => {
-  const header = req.headers["authorization"];
-  if (!header) return null;
+const getUserId = (req) => {
 
-  if (header.startsWith("Bearer ")) {
-    return header.replace("Bearer ", "");
-  }
+  // priority: body
+  if (req.body?.userId) return req.body.userId;
 
-  return header;
+  // then query
+  if (req.query?.userId) return req.query.userId;
+
+  // then params
+  if (req.params?.userId) return req.params.userId;
+
+  return null;
 };
 
 // ==============================
-// USER AUTH MIDDLEWARE
+// USER AUTH MIDDLEWARE (NO TOKEN)
 // ==============================
 export const protect = async (req, res, next) => {
-
-  // ==========================================
-  // TEST MODE BYPASS (No token check)
-  // ==========================================
-  if (process.env.TEST_MODE === "true") {
-    // Fake user attach only for testing
-    req.user = { userId: "TEST_USER" };
-    return next();
-  }
-
   try {
-    const token = getToken(req);
+    const userId = getUserId(req);
 
-    if (!token) {
-      return res.status(401).json({
-        status: false,
-        message: "Authorization token missing",
-      });
+    // If userId not provided → allow but no profile
+    if (!userId) {
+      req.user = null;
+      return next();
     }
 
-    // Decode
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "mlmsecret"
-    );
+    const user = await User.findOne({ userId });
 
-    // Find user
-    const user = await User.findOne({ userId: decoded.userId });
-
+    // If user not exist → allow but null
     if (!user) {
-      return res.status(401).json({
-        status: false,
-        message: "User not found",
-      });
+      req.user = null;
+      return next();
     }
 
-    req.user = user;
-    next();
+    // Attach user to req
+    req.user = {
+      userId: user.userId,
+      role: user.role || "user",
+
+      // MLM plan fields
+      rank: user.rank || "Star",
+      pv: user.pv || 0,
+      bv: user.bv || 0,
+      wallet: user.wallet || 0,
+      package: user.package || "Silver",
+    };
+
+    return next();
 
   } catch (err) {
-    console.error("Auth error:", err);
-
-    return res.status(401).json({
-      status: false,
-      message: "Invalid or expired token",
-    });
+    console.error("Protect error:", err);
+    req.user = null;
+    return next();
   }
 };
 
 // ==============================
-// ADMIN AUTH MIDDLEWARE
+// ADMIN AUTH MIDDLEWARE (NO TOKEN)
 // ==============================
 export const verifyAdmin = async (req, res, next) => {
-
-  // ==========================================
-  // TEST MODE BYPASS (No token check)
-  // ==========================================
-  if (process.env.TEST_MODE === "true") {
-    // Fake admin for testing
-    req.user = { userId: "TEST_ADMIN", role: "admin" };
-    return next();
-  }
-
   try {
-    const token = getToken(req);
+    const userId = getUserId(req);
 
-    if (!token) {
-      return res.status(401).json({
+    // No userId → access denied
+    if (!userId) {
+      return res.status(403).json({
         status: false,
-        message: "Authorization token missing",
+        message: "Admin userId required",
       });
     }
 
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "mlmsecret"
-    );
+    const user = await User.findOne({ userId });
 
-    const user = await User.findOne({ userId: decoded.userId });
-
+    // not found
     if (!user) {
-      return res.status(401).json({
+      return res.status(403).json({
         status: false,
         message: "User not found",
       });
     }
 
+    // not admin
     if (user.role !== "admin") {
       return res.status(403).json({
         status: false,
@@ -113,15 +93,23 @@ export const verifyAdmin = async (req, res, next) => {
       });
     }
 
-    req.user = user;
-    next();
+    // Attach admin
+    req.user = {
+      userId: user.userId,
+      role: "admin",
+
+      rank: user.rank || "Admin",
+      wallet: user.wallet || 0,
+    };
+
+    return next();
 
   } catch (err) {
-    console.error("Admin Auth error:", err);
+    console.error("Admin error:", err);
 
-    return res.status(401).json({
+    return res.status(500).json({
       status: false,
-      message: "Invalid or expired admin token",
+      message: "Admin auth error",
     });
   }
 };
