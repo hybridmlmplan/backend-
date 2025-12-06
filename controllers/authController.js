@@ -18,9 +18,9 @@ const generateUserId = async () => {
 // ======================================================
 // SIGNUP CONTROLLER
 // Sponsor REQUIRED
-// PlacementId OPTIONAL
-// Email MULTIPLE accounts allowed
+// Placement OPTIONAL
 // Phone UNIQUE
+// Email MULTIPLE allowed
 // ======================================================
 export const signup = async (req, res) => {
   try {
@@ -35,7 +35,7 @@ export const signup = async (req, res) => {
       email,
     } = req.body;
 
-    // 1) VALIDATIONS
+    // 1) REQUIRED VALIDATION
     if (!name || !phone || !password) {
       return res.status(400).json({
         status: false,
@@ -50,7 +50,7 @@ export const signup = async (req, res) => {
       });
     }
 
-    // 2) CHECK UNIQUE PHONE (email allowed multiple)
+    // 2) CHECK UNIQUE PHONE
     const phoneExists = await User.findOne({ phone });
     if (phoneExists) {
       return res.status(400).json({
@@ -59,14 +59,39 @@ export const signup = async (req, res) => {
       });
     }
 
-    // 3) HASH PASSWORD
+    // 3) VALID SPONSOR CHECK
+    const sponsor = await User.findOne({ userId: sponsorId });
+    if (!sponsor) {
+      return res.status(400).json({
+        status: false,
+        message: "Invalid sponsor ID",
+      });
+    }
+
+    // 4) VALID PLACEMENT CHECK (if provided)
+    let validPlacement = null;
+    if (placementId) {
+      validPlacement = await User.findOne({ userId: placementId });
+      if (!validPlacement) {
+        return res.status(400).json({
+          status: false,
+          message: "Invalid placement ID",
+        });
+      }
+    }
+
+    // 5) HASH PASSWORD
     const salt = bcrypt.genSaltSync(10);
     const hashedPassword = bcrypt.hashSync(password, salt);
 
-    // 4) GENERATE USER ID
+    // 6) GENERATE USER ID
     const userId = await generateUserId();
 
-    // 5) CREATE NEW USER
+    // 7) PACKAGE NORMALIZATION
+    const finalPackage =
+      (packageType || "silver").toString().trim().toLowerCase();
+
+    // 8) CREATE USER
     const user = await User.create({
       userId,
       name,
@@ -74,11 +99,11 @@ export const signup = async (req, res) => {
       email: email || null,
       password: hashedPassword,
 
-      sponsorId,                     // REQUIRED
-      placementId: placementId || null, // OPTIONAL
-      placementSide: placementSide || null, // OPTIONAL
+      sponsorId,
+      placementId: placementId || null,
+      placementSide: placementSide || null,
 
-      packageType: packageType || "silver",
+      packageType: finalPackage,
 
       session: 1,
       joinedDate: new Date(),
