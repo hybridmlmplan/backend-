@@ -1,158 +1,151 @@
-// ==================================================
-// FUND SERVICE (CAR / HOUSE / NOMINEE FUND)
-// ==================================================
+// ============================================================
+// FUND SERVICE (CLEAN)
+// ============================================================
 
 import User from "../models/User.js";
-import {
-  FUND_RATES,
-  NOMINEE_CAP,
-  applyDeduction,
-} from "../constants/fund.js";
+import { FUND_PERCENT } from "../constants/fund.js";
 
 
-// ==================================================
-// GET USER RANK (UTILITY)
-// ==================================================
-const getUserRank = (user) => {
-  return user.rank || "STAR";
+// ============================================================
+// UTILS
+// ============================================================
+
+// Apply TDS + Admin charges
+const applyCharges = (amount) => {
+  if (!amount || amount <= 0) return 0;
+
+  const tds = (amount * 5) / 100;
+  const admin = (amount * 5) / 100;
+
+  const net = amount - (tds + admin);
+
+  return net > 0 ? net : 0;
 };
 
 
-// ==================================================
-// GENERIC FUND DISTRIBUTION FUNCTION
-// ==================================================
-//
-// fundType: "car" | "house"
-// CTO_BV: company total BV
-//
-// RULES:
-// Car fund: 2% CTO BV (Ruby Star & above)
-// House fund: 2% CTO BV (Diamond Star & above)
-//
+// ============================================================
+// 1. PROCESS FUND INCOME
+// ============================================================
 
-export const distributeFund = async (fundType, CTO_BV) => {
+export const processFundIncome = async (userId) => {
   try {
-    const rate = FUND_RATES[fundType];
+    // Step 1: Fetch user
+    const user = await User.findOne({ userId });
 
-    if (!rate) {
-      return { status: false, message: "Invalid fund type" };
+    if (!user) {
+      return { status: false, message: "User not found" };
     }
 
-    // --------------------------------------------------
-    // 1. Eligible users fetch karo
-    // --------------------------------------------------
+    // Step 2: Eligibility flags (defaults safe)
+    const isRubyOrAbove = Boolean(user.rubyRankReached);
+    const isDiamondOrAbove = Boolean(user.diamondRankReached);
 
-    let eligibleUsers = [];
-
-    if (fundType === "car") {
-      eligibleUsers = await User.find({
-        rankLevel: { $gte: rate.minRank },
-      });
+    if (!isRubyOrAbove && !isDiamondOrAbove) {
+      return { status: false, message: "User not eligible for any fund" };
     }
 
-    if (fundType === "house") {
-      eligibleUsers = await User.find({
-        rankLevel: { $gte: rate.minRank },
-      });
+    // Step 3: Company CTO BV
+    const BV = Number(user.companyCTOBV || 0);
+
+    let carFund = 0;
+    let houseFund = 0;
+
+    // -------------------------------
+    // CAR FUND (Ruby Star and above)
+    // -------------------------------
+    if (isRubyOrAbove) {
+      const income = (BV * FUND_PERCENT.CAR) / 100;
+      carFund = applyCharges(income);
     }
 
-    if (!eligibleUsers.length) {
-      return { status: true, totalUsers: 0, message: "No eligible users" };
+    // ----------------------------------
+    // HOUSE FUND (Diamond Star and above)
+    // ----------------------------------
+    if (isDiamondOrAbove) {
+      const income = (BV * FUND_PERCENT.HOUSE) / 100;
+      houseFund = applyCharges(income);
     }
 
-    // --------------------------------------------------
-    // 2. Total distributable amount
-    // --------------------------------------------------
+    const total = carFund + houseFund;
 
-    const totalFund = CTO_BV * rate.percentage;
+    // Step 4: Update wallet
+    user.wallet = Number(user.wallet || 0) + total;
 
-    const perUserRaw = totalFund / eligibleUsers.length;
+    // Step 5: Update stats safely
+    user.fundStats = {
+      carFund: (user.fundStats?.carFund || 0) + carFund,
+      houseFund: (user.fundStats?.houseFund || 0) + houseFund,
+      totalFundIncome: (user.fundStats?.totalFundIncome || 0) + total,
+      lastPayoutDate: new Date(),
+    };
 
-    // --------------------------------------------------
-    // 3. Apply deduction & update wallet
-    // --------------------------------------------------
-
-    for (const user of eligibleUsers) {
-      const payable = applyDeduction(perUserRaw);
-
-      user.wallet = (user.wallet || 0) + payable;
-      await user.save();
-    }
+    // Step 6: Save
+    await user.save();
 
     return {
       status: true,
-      fundType,
-      eligibleUsers: eligibleUsers.length,
-      perUserRaw,
-      perUserPayable: applyDeduction(perUserRaw),
+      message: "Fund processed",
+      fundIncome: {
+        carFund,
+        houseFund,
+        total,
+      },
     };
-
-  } catch (err) {
-    console.log("Fund Error:", err);
-    return { status: false, message: "Server error" };
+  } catch (error) {
+    return {
+      status: false,
+      message: "Server error",
+      error: error?.message,
+    };
   }
 };
 
 
 
+// ============================================================
+// 2. GET USER FUND SUMMARY
+// ============================================================
 
-// ==================================================
-// NOMINEE FUND (RUBY)
-// ==================================================
-//
-// 1% CTO BV
-// Monthly capping: 10,000
-// All nominees share equally
-//
-
-export const distributeNomineeFund = async (CTO_BV) => {
+export const getUserFundSummary = async (userId) => {
   try {
-    const users = await User.find({ isNominee: true });
+    const user = await User.findOne({ userId });
 
-    if (!users.length) {
-      return { status: true, totalUsers: 0, message: "No nominees" };
+    if (!user) {
+      return {
+        carFund: 0,
+        houseFund: 0,
+        totalFundIncome: 0,
+        lastPayoutDate: null,
+      };
     }
 
-    // ------------------------------------
-    // Total distributable amount
-    // ------------------------------------
-
-    const totalFund = CTO_BV * NOMINEE_CAP.percentage;
-
-    const perUserRaw = totalFund / users.length;
-
-    // ------------------------------------
-    // Respect monthly capping (10,000)
-    // ------------------------------------
-
-    let perUserFinal = perUserRaw;
-
-    if (perUserFinal > NOMINEE_CAP.maxMonthly) {
-      perUserFinal = NOMINEE_CAP.maxMonthly;
-    }
-
-    // Apply 10% deduction
-    const payable = applyDeduction(perUserFinal);
-
-    // ------------------------------------
-    // UPDATE WALLET
-    // ------------------------------------
-
-    for (const user of users) {
-      user.wallet = (user.wallet || 0) + payable;
-      await user.save();
-    }
-
-    return {
-      status: true,
-      nomineeUsers: users.length,
-      perUserRaw,
-      perUserFinal,
-      perUserPayable: payable,
+    return user.fundStats || {
+      carFund: 0,
+      houseFund: 0,
+      totalFundIncome: 0,
+      lastPayoutDate: null,
     };
-
-  } catch (err) {
-    console.log("Nominee Fund Error:", err);
-    return { status: false, message: "Server error" };
+  } catch {
+    return {
+      carFund: 0,
+      houseFund: 0,
+      totalFundIncome: 0,
+      lastPayoutDate: null,
+    };
   }
 };
+
+
+
+// ============================================================
+// OPTIONAL DEFAULT EXPORT
+// ============================================================
+
+export default {
+  processFundIncome,
+  getUserFundSummary,
+};
+
+// ============================================================
+// END OF FILE
+// ============================================================
