@@ -1,45 +1,74 @@
-// models/Binary.js
-import mongoose from 'mongoose';
-const { Schema } = mongoose;
+// backend/models/Binary.js
+// Binary placement / pair item model
+// - used by binaryEngine to create red nodes and mark them green when matched
+// - fields aligned with your plan: userId, packageCode, side('L'|'R'), pv, isGreen, matchedWith, sessionMatched, matchedAt, placement info
 
-/**
- * Binary (Pair) model — tracks pair events per session per package.
- *
- * Behavior:
- * - New pair records created as RED (status:'red')
- * - When both sides eligible and package active -> status becomes 'green' and payout occurs
- * - After payout, new pair record for next cycle can be created (cycleNumber++)
- */
+import mongoose from "mongoose";
 
-const BinarySchema = new Schema({
-  pairId: { type: String, unique: true, index: true }, // e.g. "P0001..."
-  packageType: { type: String, enum: ['silver','gold','ruby'], required: true },
+const BinarySchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
+  packageCode: { type: String, enum: ["silver", "gold", "ruby"], required: true, index: true },
+  side: { type: String, enum: ["L", "R"], required: true, index: true },
 
-  sessionNumber: { type: Number, required: true }, // 1..8
-  sessionDate: { type: Date, required: true },     // date of session (UTC or IST normalized)
+  // PV value for this node (35 / 155 / 1250)
+  pv: { type: Number, required: true },
 
-  leftUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  rightUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  // red/green state
+  isGreen: { type: Boolean, default: false, index: true },
 
-  status: { type: String, enum: ['red','green'], default: 'red', index: true }, // red = pending, green = paid/eligible
-  cycleNumber: { type: Number, default: 1 }, // increments each reset cycle
+  // when matched to another binary node
+  matchedWith: { type: mongoose.Schema.Types.ObjectId, ref: "Binary", default: null },
+  sessionMatched: { type: Number, default: null }, // 1..8
+  matchedAt: { type: Date, default: null },
 
-  payoutAmount: { type: Number, default: 0 }, // stored at time of payout
-  paid: { type: Boolean, default: false },
-  paidAt: { type: Date, default: null },
+  // placement / genealogy info (optional, helpful for tree logic)
+  sponsorId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+  placementId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+  placementSide: { type: String, enum: ["L", "R", null], default: null },
 
-  greenAt: { type: Date, default: null },
+  // bookkeeping
+  createdAt: { type: Date, default: () => new Date(), index: true },
+  updatedAt: { type: Date, default: () => new Date() },
 
-  notes: { type: String, default: '' },
-
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
+  // optional flags
+  cycleResetKey: { type: String, default: null } // to mark cycles if needed by red/green reset logic
 });
 
-// Indexes to speed session processing and pending queries
-BinarySchema.index({ sessionDate: 1, sessionNumber: 1 });
-BinarySchema.index({ status: 1, packageType: 1 });
-BinarySchema.index({ leftUserId: 1 });
-BinarySchema.index({ rightUserId: 1 });
+// update updatedAt on save
+BinarySchema.pre("save", function (next) {
+  this.updatedAt = new Date();
+  next();
+});
 
-export default mongoose.model('Binary', BinarySchema);
+// convenience static: fetch earliest red node for user/package/side
+BinarySchema.statics.findEarliestRed = function ({ userId, packageCode, side }) {
+  return this.findOne({
+    userId,
+    packageCode,
+    side,
+    isGreen: false
+  }).sort({ createdAt: 1 });
+};
+
+// convenience static: find earliest opposite red node across system (for matching different users)
+BinarySchema.statics.findEarliestOpposite = function ({ packageCode, side, excludeId = null }) {
+  const oppSide = side === "L" ? "R" : "L";
+  const q = { packageCode, side: oppSide, isGreen: false };
+  if (excludeId) q._id = { $ne: excludeId };
+  return this.findOne(q).sort({ createdAt: 1 });
+};
+
+// instance helper: mark as green with matchedWith and session info
+BinarySchema.methods.markAsGreen = async function (matchedBinaryId, sessionNumber, matchedAt = new Date()) {
+  this.isGreen = true;
+  this.matchedWith = matchedBinaryId;
+  this.sessionMatched = sessionNumber;
+  this.matchedAt = matchedAt;
+  await this.save();
+  return this;
+};
+
+// indexes to help aggregate queries (user/package/side/createdAt)
+BinarySchema.index({ packageCode: 1, side: 1, isGreen: 1, createdAt: 1 });
+
+export default mongoose.model("Binary", BinarySchema);
