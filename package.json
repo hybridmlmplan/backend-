@@ -1,37 +1,47 @@
 {
   "name": "hybrid-mlm-backend",
   "version": "1.0.0",
-  "description": "Hybrid MLM Plan Backend (Node.js + Express + MongoDB)",
+  "description": "Backend for Hybrid MLM Plan — PV binary engine, BV/royalty/funds, EPIN, wallet, rank & session engine (production-ready).",
   "main": "server.js",
-  "type": "module",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   },
+  "scripts": {
+    "start": "node --enable-source-maps server.js",
+    "start:prod": "NODE_ENV=production node --enable-source-maps server.js",
+    "start:scheduler": "NODE_ENV=production node --enable-source-maps workers/sessionSchedulerWorker.js",
+    "start:worker": "NODE_ENV=production node --enable-source-maps workers/worker.js",
+    "dev": "nodemon --watch backend --ext js --exec \"node --enable-source-maps server.js\"",
+    "lint": "eslint . --ext .js",
+    "format": "prettier --write \"**/*.{js,json,md}\"",
+    "test": "jest --runInBand",
+    "seed": "node scripts/seedInitialData.js",
+    "migrate": "node scripts/runMigrations.js"
+  },
+  "author": "Dev",
+  "license": "MIT",
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.5.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.0",
+    "mongoose": "^7.5.0",
     "morgan": "^1.10.0",
-    "uuid": "^9.0.1"
+    "node-cron": "^3.0.2",
+    "nodemailer": "^6.9.5",
+    "pino": "^8.16.0",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "eslint": "^8.52.0",
+    "jest": "^29.6.1",
+    "nodemon": "^3.0.1",
+    "prettier": "^3.6.0"
   },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "keywords": [
-    "mlm",
-    "binary",
-    "node",
-    "express",
-    "hybrid",
-    "backend"
-  ],
-  "author": "Dev Ji",
-  "license": "MIT"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hybridmlmplan/backend"
+  }
 }
