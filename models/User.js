@@ -1,108 +1,184 @@
-// models/User.js
-import mongoose from 'mongoose';
+// Backend/models/User.js
+import mongoose from "mongoose";
+import bcrypt from "bcryptjs";
+
 const { Schema } = mongoose;
 
 /**
- * User model — core fields according to final plan.
- *
- * Important:
- * - userCode: GSM0001...
- * - franchiseCode: FGSM0001... (when isFranchise = true)
- * - email: NOT unique (allowed reuse)
- * - sponsorId: required
- * - placementId: optional (if not provided, auto placement will be done by placement util)
- * - package: 'non_active' | 'silver' | 'gold' | 'ruby'
- * - pvBalance: per-package PV counters
- * - bvBalance: aggregate BV from purchases (used for BV-based incomes)
- * - walletBalance + walletLedger: immediate credits
- * - rankCounters: counts for income pairs / cutoff pairs per package
- * - rankStatus: numeric rank levels per package
+ * User model aligned with the provided Hybrid MLM Plan.
+ * - Stores PV/BV, binary legs, wallet, rank/level metadata, EPINs, genealogy pointers, session flags etc.
+ * - Pre-save password hashing
+ * - comparePassword helper
  */
 
-const WalletEntrySchema = new Schema({
-  type: { type: String },            // 'credit'|'debit'
-  amount: { type: Number },          // positive number
-  source: { type: String },          // 'pair'|'rank'|'royalty'|'fund'|'order' etc.
-  refId: { type: Schema.Types.ObjectId, default: null },
-  note: { type: String, default: '' },
-  createdAt: { type: Date, default: Date.now }
-}, { _id: false });
+const PackageEnum = ["silver", "gold", "ruby", "none"];
+const RankEnum = [
+  "none",
+  "star",
+  "silver_star",
+  "gold_star",
+  "ruby_star",
+  "emerald_star",
+  "diamond_star",
+  "crown_star",
+  "ambassador_star",
+  "company_star",
+];
 
-const PvBalanceSchema = new Schema({
-  silver: { type: Number, default: 0 },
-  gold: { type: Number, default: 0 },
-  ruby: { type: Number, default: 0 }
-}, { _id: false });
+const UserSchema = new Schema(
+  {
+    // Basic identity + auth
+    name: { type: String, required: true, trim: true },
+    email: { type: String, trim: true, lowercase: true, index: true },
+    phone: { type: String, trim: true, index: true },
+    password: { type: String, required: true },
 
-const RankCountersSchema = new Schema({
-  // counts for ranking logic: incomePairs and cutoffPairs (per package)
-  silverIncomePairs: { type: Number, default: 0 },
-  silverCutoffPairs: { type: Number, default: 0 },
-  goldIncomePairs: { type: Number, default: 0 },
-  goldCutoffPairs: { type: Number, default: 0 },
-  rubyIncomePairs: { type: Number, default: 0 },
-  rubyCutoffPairs: { type: Number, default: 0 }
-}, { _id: false });
+    // Login id (usercode) — e.g. GSM0001 style
+    userId: { type: String, unique: true, index: true },
 
-const RankStatusSchema = new Schema({
-  // numeric rank level (0 = Star, 1 = Silver Star, ...)
-  silverRank: { type: Number, default: 0 },
-  goldRank: { type: Number, default: 0 },
-  rubyRank: { type: Number, default: 0 }
-}, { _id: false });
+    // Sponsor / placement
+    sponsorId: { type: String, index: true }, // sponsor's userId
+    placementId: { type: String, index: true }, // placement sponsor's userId (optional)
+    placementSide: { type: String, enum: ["left", "right", "auto", null], default: null },
 
-const UserSchema = new Schema({
-  userCode: { type: String, unique: true, index: true },   // GSM0001
-  franchiseCode: { type: String, unique: true, sparse: true }, // FGSM0001 when franchise
-  name: { type: String, required: true, trim: true },
-  email: { type: String, trim: true },                     // non-unique allowed
-  phone: { type: String, required: true, index: true, unique: true },
-  passwordHash: { type: String, required: true },
+    // Package & activation via EPIN
+    package: { type: String, enum: PackageEnum, default: "none" },
+    packageActive: { type: Boolean, default: false },
+    packageActivatedAt: { type: Date, default: null },
+    packagePV: { type: Number, default: 0 }, // PV value of active package (35/155/1250)
+    packagePairCapping: { type: Number, default: 1 }, // usually 1 pair per session
 
-  sponsorId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  placementId: { type: Schema.Types.ObjectId, ref: 'User' },   // optional
-  placementSide: { type: String, enum: ['left','right'], default: null },
+    // EPIN tokens owned
+    epins: [{ type: Schema.Types.ObjectId, ref: "EPIN" }],
 
-  package: { type: String, enum: ['non_active','silver','gold','ruby'], default: 'non_active' },
-  packageActivatedAt: { type: Date, default: null },
+    // Wallets & ledgers
+    wallet: {
+      balance: { type: Number, default: 0 }, // withdrawable
+      ledgerBalance: { type: Number, default: 0 }, // internal ledger
+    },
 
-  pvBalance: { type: PvBalanceSchema, default: () => ({}) },
-  bvBalance: { type: Number, default: 0 },
+    // PV/BV tracking (binary uses PV; BV used for royalty/fund/rank incomes)
+    pvLeft: { type: Number, default: 0 },
+    pvRight: { type: Number, default: 0 },
 
-  walletBalance: { type: Number, default: 0 },
-  walletLedger: { type: [WalletEntrySchema], default: [] },
+    totalPV: { type: Number, default: 0 }, // cumulative PV (useful for rules)
+    totalBV: { type: Number, default: 0 }, // cumulative BV (for royalty/funds)
 
-  rankCounters: { type: RankCountersSchema, default: () => ({}) },
-  rankStatus: { type: RankStatusSchema, default: () => ({}) },
+    // Binary & pairing state (simplified storage)
+    // Store pending red pairs count per package type/session window if needed
+    pendingPairs: [
+      {
+        package: { type: String, enum: PackageEnum },
+        count: { type: Number, default: 0 },
+        lastSession: { type: Schema.Types.ObjectId, ref: "Session" },
+      },
+    ],
 
-  directs: [{ type: Schema.Types.ObjectId, ref: 'User' }],     // immediate directs
-  genealogyPath: [{ type: Schema.Types.ObjectId, ref: 'User' }], // root->...->this
+    // Rank & Level metadata
+    rank: { type: String, enum: RankEnum, default: "none", index: true },
+    rankUpdatedAt: { type: Date },
+    directsCount: { type: Number, default: 0 }, // direct members count
+    levelCounts: [
+      {
+        level: { type: Number },
+        count: { type: Number, default: 0 },
+      },
+    ],
 
-  epins: [{ type: String }],   // used epins codes
+    // Level income tracking ledger (could be aggregated)
+    levelIncome: { type: Number, default: 0 },
 
-  isFranchise: { type: Boolean, default: false },
+    // Royalty metadata: to compute CTO BV and continuous royalty
+    ctoBV: { type: Number, default: 0 },
+    royaltyPaidTill: { type: Number, default: 0 }, // amount threshold tracked (eg until ₹35)
 
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
-}, { timestamps: true });
+    // Fund pools participation flags (monthly/yearly)
+    eligibleCarFund: { type: Boolean, default: false },
+    eligibleHouseFund: { type: Boolean, default: false },
+    eligibleTravel: { type: Boolean, default: false },
 
-// ---------------------- Pre-save hooks (notes) ----------------------
-// Hooks reference utils which will be provided: utils/idGenerator.js and utils/placement.js
-// - generateUserCode(): returns "GSM0001" etc. (atomic counter)
-// - generateFranchiseCode(): returns "FGSM0001"
-// - autoPlacementIfMissing(this) will find sponsor's weaker leg and set placementId/placementSide
-//
-// We intentionally do NOT run heavy placement logic here synchronously to avoid race conditions.
-// The API controller activating signup should call placement service (atomic) after creating the user.
-// If you want pre('validate') generation, enable the following when idGenerator util available:
-//
-// Example (when utils present):
-// UserSchema.pre('validate', async function(next) {
-//   if (!this.userCode) this.userCode = await generateUserCode();
-//   if (this.isFranchise && !this.franchiseCode) this.franchiseCode = await generateFranchiseCode();
-//   next();
-// });
-//
-// --------------------------------------------------------------------
+    // Genealogy / Binary tree pointers
+    parentId: { type: String, index: true }, // immediate upline userId
+    leftChildId: { type: String, default: null },
+    rightChildId: { type: String, default: null },
 
-export default mongoose.model('User', UserSchema);
+    // Notifications & flags
+    notifications: [{ type: Schema.Types.ObjectId, ref: "Notification" }],
+
+    // Session / engine helpers
+    sessionCaps: {
+      // keeps track of how many pairs were paid in current session for each package
+      silver: { type: Number, default: 0 },
+      gold: { type: Number, default: 0 },
+      ruby: { type: Number, default: 0 },
+    },
+
+    // Logging / audit
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now },
+
+    // KYC and admin flags
+    kycVerified: { type: Boolean, default: false },
+    isAdmin: { type: Boolean, default: false },
+    isFranchiseHolder: { type: Boolean, default: false },
+
+    // Generic meta for extensibility
+    meta: { type: Schema.Types.Mixed, default: {} },
+  },
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
+  }
+);
+
+/**
+ * Indexes to support common queries
+ */
+UserSchema.index({ sponsorId: 1 });
+UserSchema.index({ placementId: 1 });
+UserSchema.index({ package: 1 });
+UserSchema.index({ phone: 1, email: 1 });
+
+/**
+ * Pre-save: hash password if changed
+ */
+UserSchema.pre("save", async function (next) {
+  const user = this;
+  if (!user.isModified("password")) return next();
+  try {
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(user.password, salt);
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * Helper to compare password
+ */
+UserSchema.methods.comparePassword = async function (candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.password);
+};
+
+/**
+ * Small helper to add PV/BV safely (atomic handlers should be used in services)
+ */
+UserSchema.methods.addPV = function (value) {
+  this.totalPV = (this.totalPV || 0) + Number(value || 0);
+  return this.totalPV;
+};
+UserSchema.methods.addBV = function (value) {
+  this.totalBV = (this.totalBV || 0) + Number(value || 0);
+  return this.totalBV;
+};
+
+/**
+ * Virtuals
+ */
+UserSchema.virtual("isPackageActive").get(function () {
+  return !!this.packageActive && this.package !== "none";
+});
+
+export default mongoose.model("User", UserSchema);
