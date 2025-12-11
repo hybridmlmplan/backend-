@@ -1,249 +1,256 @@
-// services/binaryService.js
-import mongoose from "mongoose";
+// backend/services/binaryService.js
 import Binary from "../models/Binary.js";
 import User from "../models/User.js";
-import PackageModel from "../models/Package.js";
-import WalletLedger from "../models/WalletLedger.js";
-import PVLedger from "../models/PVLedger.js";
-import Wallet from "../models/Wallet.js";
 import SessionModel from "../models/Session.js";
-import { v4 as uuidv4 } from "uuid";
-import Rank from "../models/Rank.js";
-import { getCurrentSessionIndex } from "../utils/sessionHelper.js"; // helper to compute sessionNumber from time
+import Transaction from "../models/Transaction.js";
+import Wallet from "../models/Wallet.js";
+import { addWalletTx } from "./walletService.js"; // आपके project में यही फ़ंक्शन होना चाहिए
+import { Types } from "mongoose";
 
 /**
- * Core responsibilities:
- * - createPairIfEligible(userId, packageType, sessionNumber)
- * - processSession(sessionNumber, sessionDate)  // convert RED->GREEN where eligible and payout
- * - payoutPair(pair, session) -> credits wallets and ledger
- * - resetCycleIfNeeded(userId, packageType) -> increments cycle and resets counters
- *
- * Note: Ensure DB transactions while crediting wallet + writing pair status
+ * Binary service
+ * - placePV: जब user package active करता है (EPIN डालकर), तब call होगा
+ * - getUserRedCounts: user की red side counts दिखाने के लिए (debug/admin)
+ * - findEarliestRed: earliest red entry fetch करनe के लिए
+ * - matchOnePairForUserPackage: session में user/package के लिए single pair match (red->green) करने के लिए
+ * - package config: plan के हिसाब से
  */
 
-function makeTxId(prefix = "WTX") {
-  return `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 10000)}`;
+/* ======= PLAN PACKAGE CONFIG (Final plan) ======= */
+export const PACKAGE_CONFIG = {
+  silver: { code: "silver", pv: 35, pairIncome: 10, capPerSession: 1 },
+  gold: { code: "gold", pv: 155, pairIncome: 50, capPerSession: 1 },
+  ruby: { code: "ruby", pv: 1250, pairIncome: 500, capPerSession: 1 }
+};
+
+/* ======= Utility ======= */
+function normalizePkg(code) {
+  if (!code) return "silver";
+  return String(code).toLowerCase();
 }
 
-// create a new RED pair between left and right users for a package & session
-export async function createPairManual({
-  leftUserId,
-  rightUserId,
-  packageType,
-  sessionNumber,
-  sessionDate = new Date()
-}) {
-  // PairId unique
-  const pairId = "P" + uuidv4().split("-")[0];
-  const p = await Binary.create({
-    pairId,
-    packageType,
-    sessionNumber,
-    sessionDate,
-    leftUserId,
-    rightUserId,
-    status: "red",
-    cycleNumber: 1
-  });
-  return p;
-}
+/* ======= 1) Place PV / create Binary entry (RED by default) =======
+   Called when user activates package via EPIN / admin grants PV placement.
+   side: "L" or "R"
+   meta: optional { source: 'epin'|'admin', note: '' }
+*/
+export async function placePV(userId, packageCode = "silver", side = "L", meta = {}) {
+  packageCode = normalizePkg(packageCode);
+  if (!["L", "R"].includes(side)) throw new Error("side must be 'L' or 'R'");
 
-// Called when PV is credited and a placement match is found — to create pending pair
-export async function createPairIfEligible(userId, packageType, sessionNumber, sessionDate = new Date()) {
-  // Simple approach:
-  // For a user we try to find their placement partner (opposite side) active in tree.
-  // Complex tree traversal not implemented here — assume external placement created proper left/right user links.
-  // We'll create a pair with sponsor/placement pair if both have PV >= package PV.
-  const pkg = await PackageModel.findOne({ code: packageType });
-  if (!pkg) throw new Error("Package config not found: " + packageType);
+  const cfg = PACKAGE_CONFIG[packageCode] || PACKAGE_CONFIG.silver;
 
-  const user = await User.findById(userId);
-  if (!user) throw new Error("User not found");
-
-  // Quick check PV balance
-  const userPV = (user.pvBalance && user.pvBalance[packageType]) || 0;
-  if (userPV < pkg.pv) {
-    // insufficient PV
-    return null;
-  }
-
-  // Find a potential partner in same placement parent (simple heuristic)
-  // Try placement sibling on same placementId but opposite side
-  const parentId = user.placementId;
-  if (!parentId) return null;
-
-  // find opposite-side user under same parent and with PV >= pkg.pv
-  const oppositeSide = user.placementSide === "left" ? "right" : "left";
-  const partner = await User.findOne({
-    placementId: parentId,
-    placementSide: oppositeSide,
-    [`pvBalance.${packageType}`]: { $gte: pkg.pv }
+  const bin = await Binary.create({
+    userId: Types.ObjectId(userId),
+    packageCode,
+    pv: cfg.pv,
+    side,
+    isGreen: false, // new entries always RED
+    createdAt: new Date(),
+    meta
   });
 
-  if (!partner) {
-    // no partner now -> create a red pair with placeholder right/left as pending (we still store pair referencing user itself)
-    // We'll create no pair until actual partner found to avoid wrong counts.
-    return null;
-  }
+  return bin;
+}
 
-  // Both have PV, create red pair record
-  return await createPairManual({
-    leftUserId: user.placementSide === "left" ? user._id : partner._id,
-    rightUserId: user.placementSide === "left" ? partner._id : user._id,
-    packageType,
-    sessionNumber,
-    sessionDate
+/* ======= 2) Get count of red/green per user/package (admin/debug) ======= */
+export async function getUserRedCounts(userId, packageCode = null) {
+  const match = { userId: Types.ObjectId(userId) };
+  if (packageCode) match.packageCode = normalizePkg(packageCode);
+
+  const agg = await Binary.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: "$packageCode",
+        total: { $sum: 1 },
+        red: { $sum: { $cond: [{ $eq: ["$isGreen", false] }, 1, 0] } },
+        green: { $sum: { $cond: [{ $eq: ["$isGreen", true] }, 1, 0] } }
+      }
+    }
+  ]);
+
+  return agg;
+}
+
+/* ======= 3) Find earliest red entry for a user/package/side ======= */
+export async function findEarliestRed(userId, packageCode, side) {
+  packageCode = normalizePkg(packageCode);
+  const doc = await Binary.findOne({
+    userId: Types.ObjectId(userId),
+    packageCode,
+    side,
+    isGreen: false
+  }).sort({ createdAt: 1 });
+
+  return doc;
+}
+
+/* ======= 4) Internal helper: mark two Binary docs as green and credit pair income ======= */
+async function settlePairAndCredit(leftDoc, rightDoc, sessionNumber, sessionStart = new Date()) {
+  // mark green
+  leftDoc.isGreen = true;
+  leftDoc.matchedWith = rightDoc._id;
+  leftDoc.sessionMatched = sessionNumber;
+  leftDoc.matchedAt = sessionStart;
+
+  rightDoc.isGreen = true;
+  rightDoc.matchedWith = leftDoc._id;
+  rightDoc.sessionMatched = sessionNumber;
+  rightDoc.matchedAt = sessionStart;
+
+  await leftDoc.save();
+  await rightDoc.save();
+
+  // determine package (should be same)
+  const pkg = leftDoc.packageCode || rightDoc.packageCode || "silver";
+  const income = (PACKAGE_CONFIG[pkg] && PACKAGE_CONFIG[pkg].pairIncome) || 0;
+
+  // create transaction records and credit wallet for both users
+  // left user
+  await Transaction.create({
+    user: leftDoc.userId,
+    type: "pair_income",
+    packageCode: pkg,
+    amount: income,
+    meta: { fromLeft: leftDoc._id, matchedWith: rightDoc._id, sessionNumber },
+    createdAt: new Date()
   });
+  await addWalletTx(leftDoc.userId, income, "pair_income", { packageCode: pkg, pairId: leftDoc._id });
+
+  // right user
+  await Transaction.create({
+    user: rightDoc.userId,
+    type: "pair_income",
+    packageCode: pkg,
+    amount: income,
+    meta: { fromRight: rightDoc._id, matchedWith: leftDoc._id, sessionNumber },
+    createdAt: new Date()
+  });
+  await addWalletTx(rightDoc.userId, income, "pair_income", { packageCode: pkg, pairId: rightDoc._id });
+
+  return { amount: income, package: pkg };
 }
 
-// Core: process pending pairs for a session (convert reds to greens and payout)
-export async function processSessionPairs(sessionNumber, sessionDate = new Date()) {
-  // sessionDate should be normalized to yyyy-mm-dd at start of day to match Binary.sessionDate usage
-  const dateKey = new Date(sessionDate);
-  dateKey.setHours(0, 0, 0, 0);
+/* ======= 5) Check session cap (per user, per package) =======
+   Returns boolean: whether user already has cap reached in this session
+   sessionNumber must be provided by scheduler/engine.
+*/
+export async function isSessionCapReached(userId, packageCode, sessionNumber) {
+  if (!sessionNumber && sessionNumber !== 0) return false; // fail-safe (no enforcement)
+  packageCode = normalizePkg(packageCode);
+  const cfg = PACKAGE_CONFIG[packageCode] || PACKAGE_CONFIG.silver;
 
-  // Find RED pairs in this session
-  const reds = await Binary.find({
+  // count processed pairs by this user/package in this session
+  const cnt = await SessionModel.countDocuments({
     sessionNumber,
-    sessionDate: { $gte: dateKey },
-    status: "red",
-  }).limit(1000); // batch limit for safety
+    "processedPairs.userId": String(userId),
+    "processedPairs.package": packageCode
+  });
 
-  for (const pair of reds) {
-    await tryConvertPairToGreen(pair);
-  }
-
-  return { processed: reds.length };
+  return cnt >= (cfg.capPerSession || 1);
 }
 
-// Try converting a single pair to green and pay both users if eligible
-export async function tryConvertPairToGreen(pair) {
-  const session = await mongoose.startSession();
-  try {
-    session.startTransaction();
+/* ======= 6) Try to match single pair for a given user & package in this session =======
+   - will fetch earliest left & earliest right (isGreen:false) for the same user and package
+   - check session cap (uses SessionModel entries)
+   - if matched => mark green + credit (via settlePairAndCredit) and also push into SessionModel processedPairs
+*/
+export async function matchOnePairForUserPackage(userId, packageCode, sessionNumber, sessionStart = new Date()) {
+  packageCode = normalizePkg(packageCode);
+  const cfg = PACKAGE_CONFIG[packageCode] || PACKAGE_CONFIG.silver;
 
-    // reload pair inside transaction
-    const p = await Binary.findById(pair._id).session(session);
-    if (!p) {
-      await session.abortTransaction();
-      session.endSession();
-      return null;
-    }
+  // enforce cap via session record
+  const capReached = await isSessionCapReached(userId, packageCode, sessionNumber);
+  if (capReached) return { status: false, reason: "cap_reached" };
 
-    if (p.status === "green") {
-      await session.commitTransaction();
-      session.endSession();
-      return p;
-    }
+  // find earliest left & right
+  const left = await Binary.findOne({
+    userId: Types.ObjectId(userId),
+    packageCode,
+    side: "L",
+    isGreen: false
+  }).sort({ createdAt: 1 });
 
-    // fetch users
-    const left = await User.findById(p.leftUserId).session(session);
-    const right = await User.findById(p.rightUserId).session(session);
-    if (!left || !right) {
-      await session.abortTransaction();
-      session.endSession();
-      return null;
-    }
+  const right = await Binary.findOne({
+    userId: Types.ObjectId(userId),
+    packageCode,
+    side: "R",
+    isGreen: false
+  }).sort({ createdAt: 1 });
 
-    // Check package active & PV availability (both must have PV >= package PV)
-    const pkg = await PackageModel.findOne({ code: p.packageType }).session(session);
-    if (!pkg) {
-      await session.abortTransaction();
-      session.endSession();
-      throw new Error("Package config missing");
-    }
+  if (!left || !right) return { status: false, reason: "no_match_available" };
 
-    const leftPV = (left.pvBalance && left.pvBalance[p.packageType]) || 0;
-    const rightPV = (right.pvBalance && right.pvBalance[p.packageType]) || 0;
-    if (leftPV < pkg.pv || rightPV < pkg.pv) {
-      // not eligible yet: keep red
-      await session.abortTransaction();
-      session.endSession();
-      return null;
-    }
+  // settle
+  const result = await settlePairAndCredit(left, right, sessionNumber, sessionStart);
 
-    // All good -> convert to green, payout to both sides according to rank/pair income.
-    p.status = "green";
-    p.greenAt = new Date();
-    p.paid = true;
+  // append to SessionModel (single document per sessionNumber — create or update)
+  await SessionModel.updateOne(
+    { sessionNumber },
+    {
+      $push: {
+        processedPairs: {
+          userId: String(userId),
+          package: packageCode,
+          amount: result.amount,
+          leftId: String(left._id),
+          rightId: String(right._id),
+          timestamp: new Date()
+        }
+      },
+      $inc: { processedPairsCount: 1 }
+    },
+    { upsert: true }
+  );
 
-    // Determine payout amount: base pairIncome from package plus rank multiplier if any
-    let basePayout = pkg.pairIncome; // e.g., 10/50/500
-
-    // Optionally, check rank levels and override payout if user has higher rank (we keep base for now)
-    p.payoutAmount = basePayout;
-
-    // Create wallet ledger & update wallet for both users
-    // Left
-    const leftWallet = await Wallet.findOneAndUpdate(
-      { user: left._id },
-      { $inc: { balance: basePayout } },
-      { upsert: true, new: true, session }
-    );
-    const leftTxId = makeTxId("WTX");
-    await WalletLedger.create([{
-      userId: left._id,
-      txId: leftTxId,
-      type: "credit",
-      category: "binary",
-      amount: basePayout,
-      balanceAfter: leftWallet.balance,
-      status: "completed",
-      ref: p._id,
-      note: `Pair payout package ${p.packageType}`
-    }], { session });
-
-    // Right
-    const rightWallet = await Wallet.findOneAndUpdate(
-      { user: right._id },
-      { $inc: { balance: basePayout } },
-      { upsert: true, new: true, session }
-    );
-    const rightTxId = makeTxId("WTX");
-    await WalletLedger.create([{
-      userId: right._id,
-      txId: rightTxId,
-      type: "credit",
-      category: "binary",
-      amount: basePayout,
-      balanceAfter: rightWallet.balance,
-      status: "completed",
-      ref: p._id,
-      note: `Pair payout package ${p.packageType}`
-    }], { session });
-
-    // Persist pair changes
-    await p.save({ session });
-
-    // After payout, create new RED pair to enable next cycle (cycleNumber++)
-    const newPair = await Binary.create([{
-      pairId: "P" + uuidv4().split("-")[0],
-      packageType: p.packageType,
-      sessionNumber: p.sessionNumber,
-      sessionDate: p.sessionDate,
-      leftUserId: p.leftUserId,
-      rightUserId: p.rightUserId,
-      status: "red",
-      cycleNumber: p.cycleNumber + 1,
-    }], { session });
-
-    await session.commitTransaction();
-    session.endSession();
-
-    return p;
-  } catch (err) {
-    try { await session.abortTransaction(); } catch (e) {}
-    session.endSession();
-    console.error("tryConvertPairToGreen error", err);
-    throw err;
-  }
+  return { status: true, processed: 1, package: packageCode, amount: result.amount };
 }
 
-// Utility: get pending red pairs for a user
-export async function getPendingPairsForUser(userId) {
-  const reds = await Binary.find({
-    status: "red",
-    $or: [{ leftUserId: userId }, { rightUserId: userId }]
-  }).sort({ createdAt: -1 }).limit(200);
-  return reds;
+/* ======= 7) Find users who have at least one red-left & red-right for a package
+   Returns array of userIds — useful for session processors to iterate.
+   We limit results to avoid huge scans.
+*/
+export async function findUsersWithRedPairs(packageCode, limit = 500) {
+  packageCode = normalizePkg(packageCode);
+  const agg = await Binary.aggregate([
+    { $match: { packageCode, isGreen: false } },
+    {
+      $group: {
+        _id: "$userId",
+        leftCount: { $sum: { $cond: [{ $eq: ["$side", "L"] }, 1, 0] } },
+        rightCount: { $sum: { $cond: [{ $eq: ["$side", "R"] }, 1, 0] } }
+      }
+    },
+    { $match: { leftCount: { $gt: 0 }, rightCount: { $gt: 0 } } },
+    { $limit: limit }
+  ]);
+
+  return agg.map(x => x._id);
 }
+
+/* ======= 8) Admin helper: forceResetRedCycleForUserPackage
+   - When package completes (your plan: after 8 sessions done) admin may want to reset cycle
+   - This will mark remaining RED entries as new cycle (optionally archive) — here we only provide a simple utility:
+*/
+export async function resetRedCycleForUserPackage(userId, packageCode) {
+  packageCode = normalizePkg(packageCode);
+  // Implementation choice: do nothing destructive. Optionally add cycleId etc.
+  // For now we will mark all leftover RED for that user's package with meta.note = 'cycle_reset' & updatedAt
+  const res = await Binary.updateMany(
+    { userId: Types.ObjectId(userId), packageCode, isGreen: false },
+    { $set: { "meta.cycleResetAt": new Date() } }
+  );
+  return res;
+}
+
+/* ======= Exports ======= */
+export default {
+  PACKAGE_CONFIG,
+  placePV,
+  getUserRedCounts,
+  findEarliestRed,
+  isSessionCapReached,
+  matchOnePairForUserPackage,
+  findUsersWithRedPairs,
+  resetRedCycleForUserPackage
+};
