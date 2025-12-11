@@ -1,182 +1,159 @@
 // services/walletService.js
-import mongoose from "mongoose";
-import Wallet from "../models/Wallet.js";
-import WalletLedger from "../models/WalletLedger.js";
-import Transaction from "../models/Transaction.js";
-import User from "../models/User.js";
+// MASTER WALLET ENGINE – supports: binary, royalty, ranks, funds, franchise, level income, withdrawals
+// All income flows are fully aligned with your final business plan
+// --------------------------------------------------------------
 
-/**
- * Wallet service
- * - credit(userId, amount, category, ref = null, note)
- * - debit(userId, amount, category, ref = null, note)  // for withdrawals or admin debit
- * - getBalance(userId)
- * - createWithdrawRequest(userId, amount, details)
- * - adminApproveWithdraw(txId)
- *
- * All money movements create WalletLedger entries and Transaction records.
- */
+const mongoose = require("mongoose");
+const { Types } = mongoose;
 
-// helper tx id
-function makeTxId(prefix = "WTX") {
-  return `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 10000)}`;
+const Wallet = require("../models/Wallet");
+const WalletLedger = require("../models/WalletLedger");
+const User = require("../models/User");
+const Withdrawal = require("../models/Withdrawal");
+
+// --------------------------------------------------------------
+// INTERNAL: Create ledger entry
+// --------------------------------------------------------------
+async function createLedger({ userId, amount, type, remark, session }) {
+  const entry = {
+    userId: Types.ObjectId(userId),
+    amount: Number(amount),
+    type,
+    remark,
+    createdAt: new Date()
+  };
+
+  if (session)
+    return WalletLedger.create([entry], { session });
+
+  return WalletLedger.create(entry);
 }
 
-// ensure wallet doc exists and return it (session optional)
-async function ensureWallet(userId, session = null) {
-  return await Wallet.findOneAndUpdate(
-    { user: userId },
-    { $setOnInsert: { balance: 0, pending: 0, updatedAt: new Date() } },
-    { upsert: true, new: true, setDefaultsOnInsert: true, session }
-  );
-}
+// --------------------------------------------------------------
+// INTERNAL: Credit amount to wallet
+// --------------------------------------------------------------
+async function creditToWallet(userId, amount, type, remark, session = null) {
+  if (!amount || amount <= 0) return false;
 
-// CREDIT
-export async function credit(userId, amount, category = "binary", ref = null, note = "") {
-  if (amount <= 0) throw new Error("Amount must be positive");
+  await createLedger({
+    userId,
+    amount,
+    type,
+    remark,
+    session
+  });
 
-  const session = await mongoose.startSession();
-  try {
-    session.startTransaction();
-
-    const wallet = await ensureWallet(userId, session);
-
-    // increment balance
-    wallet.balance = (wallet.balance || 0) + Number(amount);
-    wallet.updatedAt = new Date();
-    await wallet.save({ session });
-
-    const txId = makeTxId("CR");
-
-    // create ledger
-    await WalletLedger.create([{
-      userId,
-      txId,
-      type: "credit",
-      category,
-      amount: Number(amount),
-      balanceAfter: wallet.balance,
-      status: "completed",
-      ref,
-      note
-    }], { session });
-
-    // create transaction record for audit
-    await Transaction.create([{
-      txId,
-      userId,
-      amount: Number(amount),
-      type: category,
-      status: "completed",
-      ref
-    }], { session });
-
-    await session.commitTransaction();
-    session.endSession();
-
-    return { txId, balance: wallet.balance };
-  } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    throw err;
-  }
-}
-
-// DEBIT (for instant debit; use withdraw flow for pending)
-export async function debit(userId, amount, category = "withdraw", ref = null, note = "") {
-  if (amount <= 0) throw new Error("Amount must be positive");
-
-  const session = await mongoose.startSession();
-  try {
-    session.startTransaction();
-
-    const wallet = await ensureWallet(userId, session);
-    if ((wallet.balance || 0) < amount) {
-      throw new Error("Insufficient balance");
+  const update = {
+    $inc: {
+      balance: Number(amount),
+      [type]: Number(amount)  // example: binaryIncome, royaltyIncome, rankIncome, fundIncome
     }
+  };
 
-    wallet.balance = (wallet.balance || 0) - Number(amount);
-    wallet.updatedAt = new Date();
-    await wallet.save({ session });
+  if (session)
+    return Wallet.updateOne({ userId }, update, { session });
 
-    const txId = makeTxId("DB");
-
-    await WalletLedger.create([{
-      userId,
-      txId,
-      type: "debit",
-      category,
-      amount: Number(amount),
-      balanceAfter: wallet.balance,
-      status: "completed",
-      ref,
-      note
-    }], { session });
-
-    await Transaction.create([{
-      txId,
-      userId,
-      amount: Number(amount),
-      type: category,
-      status: "completed",
-      ref
-    }], { session });
-
-    await session.commitTransaction();
-    session.endSession();
-
-    return { txId, balance: wallet.balance };
-  } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    throw err;
-  }
+  return Wallet.updateOne({ userId }, update);
 }
 
-// CREATE withdraw request (moves amount to pending, ledger entry pending)
-export async function createWithdrawRequest(userId, amount, details = {}) {
-  if (amount <= 0) throw new Error("Amount must be positive");
+// --------------------------------------------------------------
+// BINARY INCOME CREDIT
+// --------------------------------------------------------------
+async function creditBinaryIncome(userId, amount, remark = "Binary Pair Income") {
+  return creditToWallet(userId, amount, "binaryIncome", remark);
+}
+
+// --------------------------------------------------------------
+// RANK INCOME CREDIT
+// --------------------------------------------------------------
+async function creditRankIncome(userId, amount, remark = "Rank Income") {
+  return creditToWallet(userId, amount, "rankIncome", remark);
+}
+
+// --------------------------------------------------------------
+// ROYALTY INCOME CREDIT (Used by royaltyService)
+// --------------------------------------------------------------
+async function creditRoyalty(userId, amount, remark = "Monthly Royalty") {
+  return creditToWallet(userId, amount, "royaltyIncome", remark);
+}
+
+// --------------------------------------------------------------
+// FUND INCOME CREDIT (Car, House, Travel fund etc.)
+// --------------------------------------------------------------
+async function creditFundIncome(userId, amount, remark = "Fund Income") {
+  return creditToWallet(userId, amount, "fundIncome", remark);
+}
+
+// --------------------------------------------------------------
+// FRANCHISE INCOME CREDIT
+// --------------------------------------------------------------
+async function creditFranchiseIncome(userId, amount, remark = "Franchise Income") {
+  return creditToWallet(userId, amount, "franchiseIncome", remark);
+}
+
+// --------------------------------------------------------------
+// LEVEL INCOME CREDIT (0.5% BV up to 10 levels)
+// --------------------------------------------------------------
+async function creditLevelIncome(userId, amount, remark = "Level Income") {
+  return creditToWallet(userId, amount, "levelIncome", remark);
+}
+
+// --------------------------------------------------------------
+// GENERIC CREDIT FUNCTION (if future income types needed)
+// --------------------------------------------------------------
+async function creditGeneric(userId, amount, type, remark) {
+  return creditToWallet(userId, amount, type, remark);
+}
+
+// --------------------------------------------------------------
+// GET WALLET SUMMARY
+// --------------------------------------------------------------
+async function getWalletSummary(userId) {
+  const wallet = await Wallet.findOne({ userId }).lean();
+  const ledger = await WalletLedger.find({ userId }).sort({ createdAt: -1 }).lean();
+
+  return {
+    wallet,
+    ledger
+  };
+}
+
+// --------------------------------------------------------------
+// CREATE WITHDRAWAL REQUEST
+// --------------------------------------------------------------
+async function createWithdrawalRequest(userId, amount, method, details) {
+  const wallet = await Wallet.findOne({ userId });
+
+  if (!wallet || wallet.balance < amount)
+    throw new Error("Insufficient balance");
 
   const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    session.startTransaction();
+    // Deduct from wallet temporarily
+    await Wallet.updateOne(
+      { userId },
+      { $inc: { balance: -amount, pendingWithdrawal: amount } },
+      { session }
+    );
 
-    const wallet = await ensureWallet(userId, session);
-    if ((wallet.balance || 0) < amount) throw new Error("Insufficient balance");
-
-    wallet.balance = wallet.balance - Number(amount);
-    wallet.pending = (wallet.pending || 0) + Number(amount);
-    wallet.updatedAt = new Date();
-    await wallet.save({ session });
-
-    const txId = makeTxId("WREQ");
-
-    // create ledger pending
-    await WalletLedger.create([{
-      userId,
-      txId,
-      type: "debit",
-      category: "withdraw",
-      amount: Number(amount),
-      balanceAfter: wallet.balance,
-      status: "pending",
-      ref: null,
-      note: details.note || "Withdraw request"
-    }], { session });
-
-    // transaction record pending
-    await Transaction.create([{
-      txId,
-      userId,
-      amount: Number(amount),
-      type: "withdraw",
-      status: "pending",
-      ref: null
-    }], { session });
+    const withdrawal = await Withdrawal.create(
+      [{
+        userId,
+        amount,
+        method,
+        details,
+        status: "PENDING",
+        createdAt: new Date()
+      }],
+      { session }
+    );
 
     await session.commitTransaction();
     session.endSession();
 
-    return { txId, balance: wallet.balance, pending: wallet.pending };
+    return withdrawal[0];
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
@@ -184,51 +161,36 @@ export async function createWithdrawRequest(userId, amount, details = {}) {
   }
 }
 
-// ADMIN: approve withdraw (move pending -> completed and create final ledger)
-export async function adminApproveWithdraw(txId, adminNote = "") {
+// --------------------------------------------------------------
+// ADMIN: APPROVE WITHDRAWAL
+// --------------------------------------------------------------
+async function approveWithdrawal(withdrawalId, adminId) {
+  const withdrawal = await Withdrawal.findById(withdrawalId);
+  if (!withdrawal || withdrawal.status !== "PENDING")
+    throw new Error("Invalid withdrawal request");
+
   const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    session.startTransaction();
+    // Mark as approved
+    await Withdrawal.updateOne(
+      { _id: withdrawalId },
+      { $set: { status: "APPROVED", approvedBy: adminId, approvedAt: new Date() } },
+      { session }
+    );
 
-    // find pending ledger/transaction by txId
-    const ledger = await WalletLedger.findOne({ txId, status: "pending", category: "withdraw" }).session(session);
-    if (!ledger) throw new Error("Withdraw request not found or already processed");
-
-    const userId = ledger.userId;
-    const amount = ledger.amount;
-
-    const wallet = await ensureWallet(userId, session);
-    // reduce pending
-    wallet.pending = (wallet.pending || 0) - Number(amount);
-    if (wallet.pending < 0) wallet.pending = 0;
-    wallet.updatedAt = new Date();
-    await wallet.save({ session });
-
-    // update ledger status to completed and create a completed ledger entry
-    ledger.status = "completed";
-    ledger.note = ledger.note + " | approved: " + adminNote;
-    await ledger.save({ session });
-
-    const completedTxId = makeTxId("WOK");
-    await WalletLedger.create([{
-      userId,
-      txId: completedTxId,
-      type: "debit",
-      category: "withdraw",
-      amount: Number(amount),
-      balanceAfter: wallet.balance,
-      status: "completed",
-      ref: ledger._id,
-      note: "Withdraw approved"
-    }], { session });
-
-    // update transaction record
-    await Transaction.findOneAndUpdate({ txId }, { $set: { status: "completed", updatedAt: new Date() } }, { session });
+    // Remove pending amount from wallet
+    await Wallet.updateOne(
+      { userId: withdrawal.userId },
+      { $inc: { pendingWithdrawal: -withdrawal.amount } },
+      { session }
+    );
 
     await session.commitTransaction();
     session.endSession();
 
-    return { txId: completedTxId, balance: wallet.balance };
+    return true;
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
@@ -236,23 +198,111 @@ export async function adminApproveWithdraw(txId, adminNote = "") {
   }
 }
 
-// Get wallet summary + ledger (pagination)
-export async function getWalletSummary(userId, { limit = 50, skip = 0 } = {}) {
-  const wallet = await Wallet.findOne({ user: userId }).lean();
-  const ledger = await WalletLedger.find({ userId }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
-  return { wallet: wallet || { balance: 0, pending: 0 }, ledger };
+// --------------------------------------------------------------
+// ADMIN: REJECT WITHDRAWAL
+// --------------------------------------------------------------
+async function rejectWithdrawal(withdrawalId, adminId, reason) {
+  const withdrawal = await Withdrawal.findById(withdrawalId);
+  if (!withdrawal || withdrawal.status !== "PENDING")
+    throw new Error("Invalid withdrawal request");
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    await Withdrawal.updateOne(
+      { _id: withdrawalId },
+      {
+        $set: {
+          status: "REJECTED",
+          rejectedBy: adminId,
+          rejectedAt: new Date(),
+          rejectReason: reason
+        }
+      },
+      { session }
+    );
+
+    // Refund money back to wallet
+    await Wallet.updateOne(
+      { userId: withdrawal.userId },
+      {
+        $inc: {
+          balance: withdrawal.amount,
+          pendingWithdrawal: -withdrawal.amount
+        }
+      },
+      { session }
+    );
+
+    await session.commitTransaction();
+    session.endSession();
+    return true;
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    throw err;
+  }
 }
 
-// Admin: direct credit (for bonuses, adjustments)
-export async function adminCredit(userId, amount, category = "admin", note = "") {
-  return credit(userId, amount, category, null, note);
+// --------------------------------------------------------------
+// REVERSE INCOME (Admin-only safety)
+// --------------------------------------------------------------
+async function reverseIncome(ledgerId, adminId) {
+  const entry = await WalletLedger.findById(ledgerId);
+  if (!entry) throw new Error("Ledger entry not found");
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // Deduct from wallet
+    await Wallet.updateOne(
+      { userId: entry.userId },
+      { $inc: { balance: -entry.amount, [entry.type]: -entry.amount } },
+      { session }
+    );
+
+    // Add reverse ledger
+    await WalletLedger.create(
+      [{
+        userId: entry.userId,
+        amount: -entry.amount,
+        type: "REVERSAL",
+        remark: `Reversal of ${entry.type} | Admin: ${adminId}`,
+        createdAt: new Date()
+      }],
+      { session }
+    );
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return true;
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    throw err;
+  }
 }
 
-export default {
-  credit,
-  debit,
-  createWithdrawRequest,
-  adminApproveWithdraw,
+// --------------------------------------------------------------
+// EXPORTS
+// --------------------------------------------------------------
+module.exports = {
+  creditBinaryIncome,
+  creditRoyalty,
+  creditRankIncome,
+  creditFundIncome,
+  creditFranchiseIncome,
+  creditLevelIncome,
+  creditGeneric,
+
   getWalletSummary,
-  adminCredit
+
+  createWithdrawalRequest,
+  approveWithdrawal,
+  rejectWithdrawal,
+
+  reverseIncome
 };
