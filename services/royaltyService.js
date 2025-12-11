@@ -1,153 +1,284 @@
 // services/royaltyService.js
-import mongoose from "mongoose";
-import User from "../models/User.js";
-import FundPool from "../models/FundPool.js";
-import Wallet from "../models/Wallet.js";
-import WalletLedger from "../models/WalletLedger.js";
-import RoyaltyLog from "../models/RoyaltyLog.js";
-import { v4 as uuidv4 } from "uuid";
+// Royalty service — monthly distribution, cumulative rank percentages, STAR 3% until ₹35
+// Usage:
+//   const royaltyService = require('../services/royaltyService');
+//   await royaltyService.distributeMonthlyRoyalty({ period: '2025-12' , performedBy: adminId, ctxReq });
+//   await royaltyService.getUserRoyaltySummary(userId);
 
-/**
- * Royalty distribution service
- *
- * Design decisions:
- * - On BV-generating event (order/repurchase), call distributeRoyalty(totalBV)
- * - royaltyPoolPercent: portion of BV reserved for royalty distribution (configurable)
- * - Only Silver package ranks receive royalty.
- * - Each Silver rank level has a weight (derived from your percentage tiers).
- * - Pool is divided among eligible Silver users proportional to their weight.
- *
- * Configurable values below.
- */
+const mongoose = require('mongoose');
+const { Types } = mongoose;
 
-// percent of BV that becomes royalty pool (0.02 = 2% of BV). Change as required.
-const ROYALTY_POOL_PERCENT = 0.02;
+const User = require('../models/User');
+const Wallet = require('../models/Wallet');
+const BVLedger = require('../models/BVLedger');
+const RoyaltyLedger = require('../models/RoyaltyLedger');
+const Settings = require('../models/Settings');
 
-// Map silver rank level (0..8) to a weight representing relative share.
-// This map is based on your earlier tiers: Sp Star (level0) 3% etc.
-// We convert those direct percentages to relative weights for fair splitting.
-const SILVER_RANK_WEIGHT = {
-  0: 3,  // Sp Star - (3% tier)
-  1: 1,  // Sp Silver Star - (1%)
-  2: 2,  // Sp Gold Star - (2%)
-  3: 3,  // Sp Ruby Star - (3%)
-  4: 4,  // Sp Emerald Star - (4%)
-  5: 5,  // Sp Diamond Star - (5%)
-  6: 6,  // Sp Crown Star - (6%)
-  7: 7,  // Sp Ambassador Star - (7%)
-  8: 8   // Sp Company Star - (8%)
+// ---------------------------
+// CONFIG: rank order & percents
+// ---------------------------
+const RANK_ORDER = [
+  'STAR',
+  'SILVER_STAR',
+  'GOLD_STAR',
+  'RUBY_STAR',
+  'EMERALD_STAR',
+  'DIAMOND_STAR',
+  'CROWN_STAR',
+  'AMBASSADOR_STAR',
+  'COMPANY_STAR'
+];
+
+const RANK_PERCENT = {
+  STAR: 3,           // special: only until user.starRoyaltyEarned < 35
+  SILVER_STAR: 1,
+  GOLD_STAR: 2,
+  RUBY_STAR: 3,
+  EMERALD_STAR: 4,
+  DIAMOND_STAR: 5,
+  CROWN_STAR: 6,
+  AMBASSADOR_STAR: 7,
+  COMPANY_STAR: 8
 };
 
-// helper tx
-function makeTxId(prefix = "ROY") {
-  return `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random()*90000)+10000}`;
+const STAR_LIMIT = 35; // ₹35 limit for STAR 3%
+
+// ---------------------------
+// Helper: compute cumulative percent for a given rank
+// ---------------------------
+function cumulativePercentForRank(rank) {
+  let total = 0;
+  for (const r of RANK_ORDER) {
+    const p = RANK_PERCENT[r] || 0;
+    total += p;
+    if (r === rank) break;
+  }
+  return total;
 }
 
-/**
- * Distribute royalty for given BV amount.
- * Returns summary of distribution.
- */
-export async function distributeRoyalty(totalBV) {
-  if (!totalBV || totalBV <= 0) return { distributed: false, reason: "No BV" };
+// ---------------------------
+// Helper: compute CTO BV for given period
+// - period param is optional; if not passed, we consider unspent/this-month pool
+// - For simplicity we sum BVLedger items with type MONTHLY_CTO_BV and createdAt in month if period provided
+// ---------------------------
+async function getCTOBVForPeriod(period = null) {
+  // period format expected 'YYYY-MM' (eg '2025-12'). If null, sum all unconsumed CTO BV entries.
+  const match = { type: 'MONTHLY_CTO_BV' };
+  if (period) {
+    // parse YYYY-MM to start & end
+    const [y, m] = String(period).split('-').map(Number);
+    if (!y || !m) throw new Error('Invalid period format. Use YYYY-MM');
+    const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
+    const end = new Date(Date.UTC(y, m, 1, 0, 0, 0)); // next month
+    match.createdAt = { $gte: start, $lt: end };
+  }
+
+  const agg = await BVLedger.aggregate([
+    { $match: match },
+    { $group: { _id: null, total: { $sum: '$amount' } } }
+  ]);
+  return (agg[0] && agg[0].total) ? Number(agg[0].total) : 0;
+}
+
+// ---------------------------
+// computeRoyaltyForUser
+// returns { percent, grossAmount, starHandledAmount, netAmount }
+// ---------------------------
+async function computeRoyaltyForUser(user, ctoBV) {
+  if (!user || !user.rank) return { percent: 0, grossAmount: 0, starHandledAmount: 0, netAmount: 0 };
+
+  const cumulativePercent = cumulativePercentForRank(user.rank); // includes STAR percent in sum
+
+  const gross = (ctoBV * cumulativePercent) / 100;
+
+  // Now apply STAR special rule: STAR's 3% must be capped at STAR_LIMIT per user
+  let starHandled = 0;
+  if (user.rank === 'STAR' || RANK_ORDER.indexOf(user.rank) >= 0) {
+    // check if we need to deduct STAR portion that exceeds limit
+    const starPercent = RANK_PERCENT.STAR || 0;
+    const starPortion = (ctoBV * starPercent) / 100;
+
+    const already = Number(user.starRoyaltyEarned || 0);
+    if (already >= STAR_LIMIT) {
+      // user already exhausted star limit -> remove star portion from gross
+      starHandled = 0; // nothing to add as star portion
+    } else {
+      const remainingCap = STAR_LIMIT - already;
+      const starEligible = Math.min(remainingCap, starPortion);
+      starHandled = starEligible;
+    }
+  }
+
+  // net amount is gross but ensure star portion does not exceed allowed; we compute net as:
+  // gross_without_star + starHandled
+  const starPercent = RANK_PERCENT.STAR || 0;
+  const starPartOfGross = (ctoBV * starPercent) / 100;
+  const grossWithoutStar = gross - starPartOfGross;
+  const net = grossWithoutStar + starHandled;
+
+  return {
+    percent: cumulativePercent,
+    grossAmount: Number(gross),
+    starHandledAmount: Number(starHandled),
+    netAmount: Number(net)
+  };
+}
+
+// ---------------------------
+// creditRoyaltyToUser (transaction-aware helper)
+// - session optional mongoose session
+// ---------------------------
+async function creditRoyaltyToUser(userId, amount, period, session = null) {
+  if (!amount || amount <= 0) return null;
+
+  const RoyaltyLedgerDoc = {
+    userId: Types.ObjectId(userId),
+    amount: Number(amount),
+    period,
+    source: 'CTO_MONTHLY_ROYALTY',
+    createdAt: new Date()
+  };
+
+  if (session) {
+    await RoyaltyLedger.create([RoyaltyLedgerDoc], { session });
+    // increment Wallet: royaltyIncome and balance
+    await Wallet.updateOne({ userId: Types.ObjectId(userId) }, { $inc: { balance: Number(amount), royaltyIncome: Number(amount) } }, { session });
+  } else {
+    await RoyaltyLedger.create(RoyaltyLedgerDoc);
+    await Wallet.updateOne({ userId: Types.ObjectId(userId) }, { $inc: { balance: Number(amount), royaltyIncome: Number(amount) } });
+  }
+  return true;
+}
+
+// ---------------------------
+// distributeMonthlyRoyalty(options)
+// options: { period: 'YYYY-MM' (required recommended), performedBy: adminId }
+// Returns distribution report
+// ---------------------------
+async function distributeMonthlyRoyalty(options = {}) {
+  const period = options.period || null; // recommended to pass 'YYYY-MM'
+  const performedBy = options.performedBy || null;
+
+  // compute CTO BV for period
+  const CTO_BV = await getCTOBVForPeriod(period);
+  if (!CTO_BV || CTO_BV <= 0) {
+    return { ok: true, message: 'No CTO BV for period', CTO_BV: 0, distributions: [] };
+  }
 
   const session = await mongoose.startSession();
+  session.startTransaction();
   try {
-    session.startTransaction();
-
-    // compute pool
-    const pool = Number((totalBV * ROYALTY_POOL_PERCENT).toFixed(2));
-    if (pool <= 0) {
-      await session.abortTransaction();
-      session.endSession();
-      return { distributed: false, reason: "Pool zero" };
-    }
-
-    // Fetch eligible users: those with package 'silver' or who have silverRank >=0 ?
-    // We'll select users who have ever been Silver package and have a silver rank level >=0
-    const eligibleUsers = await User.find({
-      package: { $in: ["silver","gold","ruby","non_active",""] }, // include users since rank may persist even if they upgraded; but requirement said royalty only Silver ranks — we'll check rankStatus.silverRank >=0
-      "rankStatus.silverRank": { $gte: 0 } // users with silver rank info
-    }).session(session);
-
-    // Filter only those with meaningful silverRank (>=0)
-    const filtered = eligibleUsers.filter(u => {
-      const lvl = (u.rankStatus && typeof u.rankStatus.silverRank === "number") ? u.rankStatus.silverRank : -1;
-      return lvl >= 0;
-    });
-
-    if (!filtered.length) {
-      // No eligible users — pool remains unallocated (you may choose to keep in FundPool)
-      // We'll return pool back to FundPool.companyBV for later distribution.
-      await FundPool.findOneAndUpdate({}, { $inc: { companyBV: pool } }, { upsert: true, session });
-      await session.commitTransaction();
-      session.endSession();
-      return { distributed: false, reason: "No eligible users", poolSavedToFund: true };
-    }
-
-    // Sum weights
-    let totalWeight = 0;
-    const userWeights = filtered.map(u => {
-      const lvl = (u.rankStatus && typeof u.rankStatus.silverRank === "number") ? u.rankStatus.silverRank : 0;
-      const w = SILVER_RANK_WEIGHT.hasOwnProperty(lvl) ? SILVER_RANK_WEIGHT[lvl] : 0;
-      totalWeight += w;
-      return { user: u, level: lvl, weight: w };
-    });
-
-    if (totalWeight <= 0) {
-      await FundPool.findOneAndUpdate({}, { $inc: { companyBV: pool } }, { upsert: true, session });
-      await session.commitTransaction();
-      session.endSession();
-      return { distributed: false, reason: "Zero total weight" };
-    }
+    // fetch all users with a rank (we distribute only to ranked users)
+    const usersCursor = User.find({ rank: { $exists: true, $ne: null } }).cursor();
 
     const distributions = [];
-    for (const uw of userWeights) {
-      const share = Number(((pool * uw.weight) / totalWeight).toFixed(2));
-      if (share <= 0) continue;
+    for (let u = await usersCursor.next(); u != null; u = await usersCursor.next()) {
+      const user = u; // doc
 
-      // credit wallet
-      const wallet = await Wallet.findOneAndUpdate(
-        { user: uw.user._id },
-        { $inc: { balance: share } },
-        { upsert: true, new: true, session }
-      );
+      const { percent, grossAmount, starHandledAmount, netAmount } = await computeRoyaltyForUser(user, CTO_BV);
 
-      // ledger
-      const txId = makeTxId();
-      await WalletLedger.create([{
-        userId: uw.user._id,
-        txId,
-        type: "credit",
-        category: "royalty",
-        amount: share,
-        balanceAfter: wallet.balance,
-        status: "completed",
-        ref: null,
-        note: `Royalty pool distribution from BV ${totalBV}`
-      }], { session });
+      if (!netAmount || netAmount <= 0) continue;
 
-      // record royalty log
-      await RoyaltyLog.create([{
-        sourceBV: totalBV,
-        royaltyPool: pool,
-        paidToUser: uw.user._id,
-        userShare: share,
-        userRankLevel: uw.level,
-        txId,
-        note: `Royalty for silver level ${uw.level}`
-      }], { session });
+      // credit to wallet & create ledger
+      await creditRoyaltyToUser(user._id, netAmount, period || (new Date().toISOString().slice(0,7)), session);
 
-      distributions.push({ userId: uw.user._id, share, level: uw.level, txId });
+      // if starHandledAmount > 0, increment user.starRoyaltyEarned
+      if (starHandledAmount > 0) {
+        // update user.starRoyaltyEarned within session
+        await User.updateOne({ _id: user._id }, { $inc: { starRoyaltyEarned: starHandledAmount } }, { session });
+      }
+
+      distributions.push({
+        userId: user._id.toString(),
+        rank: user.rank,
+        percent,
+        grossAmount,
+        starHandledAmount,
+        credited: netAmount
+      });
     }
+
+    // Optionally: save a summary admin log (could be RoyaltyRun model) - omitted to keep to core models
 
     await session.commitTransaction();
     session.endSession();
 
-    return { distributed: true, pool, totalBV, count: distributions.length, distributions };
+    return { ok: true, CTO_BV, distributions, performedBy, period };
   } catch (err) {
-    try { await session.abortTransaction(); } catch(e){}
+    await session.abortTransaction().catch(()=>{});
     session.endSession();
-    console.error("distributeRoyalty error", err);
     throw err;
   }
 }
+
+// ---------------------------
+// manualRun - wrapper for admin manual trigger
+// ---------------------------
+async function manualRun(period, adminId) {
+  return distributeMonthlyRoyalty({ period, performedBy: adminId });
+}
+
+// ---------------------------
+// getUserRoyaltySummary(userId)
+// returns user cumulative percent, lifetime royalty, starRoyaltyEarned
+// ---------------------------
+async function getUserRoyaltySummary(userId) {
+  const user = await User.findById(userId).lean();
+  if (!user) throw new Error('User not found');
+
+  const wallet = await Wallet.findOne({ userId: user._id }).lean();
+
+  const percent = user.rank ? cumulativePercentForRank(user.rank) : 0;
+  return {
+    userId: user._id.toString(),
+    rank: user.rank || null,
+    cumulativePercent: percent,
+    lifetimeRoyaltyIncome: wallet ? Number(wallet.royaltyIncome || 0) : 0,
+    starRoyaltyEarned: Number(user.starRoyaltyEarned || 0)
+  };
+}
+
+// ---------------------------
+// rollbackDistribution(period)
+// Admin-only: rollback all RoyaltyLedger entries for given period and reverse wallet increments
+// Use cautiously.
+// ---------------------------
+async function rollbackDistribution(period) {
+  if (!period) throw new Error('period required (YYYY-MM)');
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    // find royalty ledger entries for period
+    const entries = await RoyaltyLedger.find({ period }).session(session).lean();
+    for (const e of entries) {
+      // decrement wallet
+      await Wallet.updateOne({ userId: e.userId }, { $inc: { balance: -Number(e.amount), royaltyIncome: -Number(e.amount) } }, { session });
+    }
+
+    // remove ledger entries
+    await RoyaltyLedger.deleteMany({ period }).session(session);
+
+    // NOTE: We DO NOT revert starRoyaltyEarned automatically because mapping which portion belonged to STAR is not stored separately.
+    // If you need full rollback including starRoyaltyEarned, you must store starHandledAmount per ledger record (extension recommended).
+    await session.commitTransaction();
+    session.endSession();
+    return { ok: true, rolledBack: entries.length };
+  } catch (err) {
+    await session.abortTransaction().catch(()=>{});
+    session.endSession();
+    throw err;
+  }
+}
+
+// ---------------------------
+// Exports
+// ---------------------------
+module.exports = {
+  cumulativePercentForRank,
+  computeRoyaltyForUser,
+  distributeMonthlyRoyalty,
+  manualRun,
+  getUserRoyaltySummary,
+  rollbackDistribution
+};
