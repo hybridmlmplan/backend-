@@ -1,5 +1,6 @@
 // ===============================================
-// MongoDB Connection (Railway / Production Safe)
+// Hybrid MLM Backend
+// MongoDB Connection (Production Safe)
 // ===============================================
 
 import mongoose from "mongoose";
@@ -7,22 +8,21 @@ import mongoose from "mongoose";
 let isConnected = false;
 
 /**
- * Connect MongoDB
+ * MongoDB Connect
  * - No process.exit()
  * - No crash on missing env
- * - Railway friendly
+ * - Fully compatible with Hybrid MLM plan
  */
 const connectDB = async () => {
   try {
+    // If DB URL not available, don't crash server
     if (!process.env.MONGO_URI) {
-      console.warn("⚠️ MONGO_URI not found. Skipping MongoDB connection.");
+      console.warn("⚠️ MONGO_URI not set. MongoDB connection skipped.");
       return;
     }
 
-    if (isConnected) {
-      console.log("ℹ️ MongoDB already connected");
-      return;
-    }
+    // Prevent multiple connections
+    if (isConnected) return;
 
     await mongoose.connect(process.env.MONGO_URI, {
       maxPoolSize: 10,
@@ -32,27 +32,13 @@ const connectDB = async () => {
 
     isConnected = true;
     console.log("✅ MongoDB connected successfully");
-  } catch (error) {
-    console.error("❌ MongoDB connection failed:", error.message);
-    // ❗ DO NOT EXIT PROCESS (Railway handles restarts)
-  }
-};
-
-/**
- * Graceful disconnect (optional)
- */
-const disconnectDB = async () => {
-  try {
-    if (!isConnected) return;
-    await mongoose.disconnect();
-    isConnected = false;
-    console.log("MongoDB disconnected");
   } catch (err) {
-    console.error("MongoDB disconnect error:", err.message);
+    // Log error only — never kill server
+    console.error("❌ MongoDB connection error:", err.message);
   }
 };
 
-// Safe event logging (NO process.exit)
+// Runtime safety logs (plan safe)
 mongoose.connection.on("error", (err) => {
   console.error("MongoDB runtime error:", err.message);
 });
@@ -62,4 +48,3 @@ mongoose.connection.on("disconnected", () => {
 });
 
 export default connectDB;
-export { disconnectDB };
