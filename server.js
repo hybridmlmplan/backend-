@@ -10,11 +10,7 @@ app.get("/", (req, res) => {
   res.send("OK");
 });
 
-app.get("/health", (req, res) => {
-  res.status(200).send("healthy");
-});
-
-const PORT = process.env.PORT;   // ❗ NO fallback
+const PORT = process.env.PORT;
 
 app.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
