@@ -1,36 +1,17 @@
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
-
-// Load env
-dotenv.config();
 
 const app = express();
 
-// Middlewares
 app.use(cors());
 app.use(express.json());
 
-// Health check (IMPORTANT for Railway)
 app.get("/", (req, res) => {
-  res.json({
-    status: "SUCCESS",
-    message: "Hybrid MLM Backend Running 🚀"
-  });
+  res.status(200).send("Backend is LIVE 🚀");
 });
 
-// =====================
-// TEMP TEST ROUTE
-// =====================
-app.get("/api/test", (req, res) => {
-  res.json({ ok: true });
-});
-
-// =====================
-// SERVER START
-// =====================
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log("Server running on port", PORT);
 });
