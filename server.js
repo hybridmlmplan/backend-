@@ -3,17 +3,26 @@ import cors from "cors";
 
 const app = express();
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 
+// Health check (VERY IMPORTANT for Railway)
 app.get("/", (req, res) => {
-  res.status(200).json({ status: "OK", message: "Backend Live 🚀" });
+  res.status(200).json({
+    status: "OK",
+    message: "Backend is running 🚀"
+  });
 });
 
-// 🔥 IMPORTANT FIX HERE
-const PORT = process.env.PORT || 8080;
-const HOST = "0.0.0.0";
+// Example API test route
+app.get("/api/test", (req, res) => {
+  res.json({ success: true });
+});
 
-app.listen(PORT, HOST, () => {
-  console.log(`🚀 Server running on ${HOST}:${PORT}`);
+// Railway uses dynamic PORT
+const PORT = process.env.PORT || 8080;
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
