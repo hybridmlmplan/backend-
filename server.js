@@ -6,18 +6,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🔴 Railway Health Check (PLAIN TEXT REQUIRED)
 app.get("/", (req, res) => {
-  res.setHeader("Content-Type", "text/plain");
-  res.status(200).send("OK");
+  res.send("OK");
 });
 
-// test api (for manual check)
-app.get("/api/test", (req, res) => {
-  res.json({ success: true });
+app.get("/health", (req, res) => {
+  res.status(200).send("healthy");
 });
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT;   // ❗ NO fallback
 
 app.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
