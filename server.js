@@ -1,6 +1,5 @@
 import express from "express";
 import cors from "cors";
-import packageRoutes from "./routes/packageRoutes.js";
 
 const app = express();
 
@@ -27,14 +26,32 @@ app.get("/", (req, res) => {
 
 // API test
 app.get("/api/test", (req, res) => {
-  res.status(200).json({
+  res.json({
     success: true,
     message: "API working"
   });
 });
 
-// Package routes
-app.use("/api", packageRoutes);
+// ✅ TEMP PACKAGE API (no crash)
+app.get("/api/packages", (req, res) => {
+  res.json([
+    {
+      name: "Silver",
+      price: 35,
+      pv: 35
+    },
+    {
+      name: "Gold",
+      price: 155,
+      pv: 155
+    },
+    {
+      name: "Ruby",
+      price: 1250,
+      pv: 1250
+    }
+  ]);
+});
 
 /* =========================
    SERVER START
