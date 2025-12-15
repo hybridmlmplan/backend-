@@ -9,43 +9,69 @@ const generateUserId = async () => {
   return lastUser ? lastUser.userId + 1 : 100001;
 };
 
-/* SIGNUP */
+/* ================= SIGNUP ================= */
 export const signup = async (req, res) => {
   try {
-    const { name, mobile, email, password, sponsorId, placementId, placement } =
-      req.body;
+    const {
+      name,
+      mobile,
+      email,
+      sponsorId,
+      placementId,
+      placementSide,
+      packageKey,
+      epin,
+      loginId,
+      password
+    } = req.body;
 
-    if (!name || !mobile || !password || !sponsorId) {
+    // basic validation (frontend aligned)
+    if (!name || !mobile || !sponsorId || !loginId || !password) {
       return error(res, "Required fields missing");
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // check duplicate loginId
+    const exists = await User.findOne({ loginId });
+    if (exists) {
+      return error(res, "Login ID already exists");
+    }
 
+    const hashedPassword = await bcrypt.hash(password, 10);
     const userId = await generateUserId();
 
     const user = await User.create({
       userId,
+      loginId,
       name,
       mobile,
       email,
-      password: hashedPassword,
       sponsorId,
       placementId: placementId || null,
-      placement: placement || "L"
+      placementSide: placementSide || "left",
+      packageKey: packageKey || null,
+      password: hashedPassword,
+      isActive: false   // EPIN activate later
     });
 
-    return success(res, { userId: user.userId }, "Signup successful");
+    return success(
+      res,
+      { userId: user.userId },
+      "Signup successful"
+    );
   } catch (err) {
-    return error(res, err.message);
+    return error(res, err.message || "Signup failed");
   }
 };
 
-/* LOGIN */
+/* ================= LOGIN ================= */
 export const login = async (req, res) => {
   try {
-    const { userId, password } = req.body;
+    const { login, password } = req.body;
 
-    const user = await User.findOne({ userId });
+    const user = await User.findOne({
+      $or: [{ loginId: login }, { mobile: login }]
+    });
+
     if (!user) return error(res, "User not found", 404);
 
     const match = await bcrypt.compare(password, user.password);
@@ -53,12 +79,12 @@ export const login = async (req, res) => {
 
     const token = jwt.sign(
       { id: user._id, userId: user.userId },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || "secret123",
       { expiresIn: "7d" }
     );
 
     return success(res, { token }, "Login successful");
   } catch (err) {
-    return error(res, err.message);
+    return error(res, err.message || "Login failed");
   }
 };
